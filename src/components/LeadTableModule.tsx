@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Lead, Campaign, User, LEAD_STATUS_CONFIG } from '../types/crm';
 import { crmStore } from '../services/crmStore';
 import { formatPeriodMMYYYY, formatMessageTemplate } from '../utils/formatters';
+import { isLeadAssignedToUser } from '../utils/sellerUtils';
 import { analyzePhoneWhatsApp } from '../utils/phoneUtils';
 import { ConfirmModal } from './ConfirmModal';
 import { CustomSelect } from './CustomSelect';
@@ -11,7 +12,7 @@ import autoTable from 'jspdf-autotable';
 import { 
   Table, Search, ChevronLeft, ChevronRight, 
   MessageCircle, Eye, FileSpreadsheet, Trash2, Loader2, Check, X, Phone,
-  Filter, Tag, UserCheck, FileText, Download
+  Filter, Tag, UserCheck, FileText, Download, ShieldCheck, Sparkles, User as UserIcon
 } from 'lucide-react';
 
 interface LeadTableModuleProps {
@@ -65,9 +66,19 @@ export const LeadTableModule: React.FC<LeadTableModuleProps> = ({
     return nonRejected.length > 0 ? nonRejected : users;
   }, [users]);
 
-  // Intelligent Search & Filter logic
+  const isAdmin = currentUser.role === 'admin';
+
+  // Intelligent Search & Filter logic (with strict role-based seller scoping)
   const filteredLeads = useMemo(() => {
     return leads.filter((lead) => {
+      // 1. Strict Seller Role Check: Sellers only see their assigned leads
+      if (!isAdmin) {
+        if (!isLeadAssignedToUser(lead, currentUser)) {
+          return false;
+        }
+      }
+
+      // 2. Intelligent Search query
       const q = search.trim().toLowerCase();
       const matchesSearch = q === '' || [
         lead.nombre,
@@ -80,19 +91,23 @@ export const LeadTableModule: React.FC<LeadTableModuleProps> = ({
         lead.observacionRechazo || ''
       ].some(val => val.toLowerCase().includes(q));
 
+      // 3. Campaign & Status filters
       const matchesCampaign = selectedCampaign === 'all' || lead.campanaId === selectedCampaign;
       const matchesStatus = selectedStatus === 'all' || lead.estado === selectedStatus;
       
+      // 4. Seller filter (only applicable for admin)
       let matchesSeller = true;
-      if (selectedSeller === 'unassigned') {
-        matchesSeller = lead.vendedorId === null;
-      } else if (selectedSeller !== 'all') {
-        matchesSeller = lead.vendedorId === selectedSeller;
+      if (isAdmin) {
+        if (selectedSeller === 'unassigned') {
+          matchesSeller = lead.vendedorId === null;
+        } else if (selectedSeller !== 'all') {
+          matchesSeller = lead.vendedorId === selectedSeller;
+        }
       }
 
       return matchesSearch && matchesCampaign && matchesStatus && matchesSeller;
     });
-  }, [leads, search, selectedCampaign, selectedStatus, selectedSeller]);
+  }, [leads, search, selectedCampaign, selectedStatus, selectedSeller, isAdmin, currentUser]);
 
   // Reset pagination when filter changes
   React.useEffect(() => {
@@ -345,6 +360,25 @@ export const LeadTableModule: React.FC<LeadTableModuleProps> = ({
     }
   };
 
+  const [isDeduplicating, setIsDeduplicating] = useState(false);
+
+  const handleDeduplicate = async () => {
+    setIsDeduplicating(true);
+    try {
+      const result = await crmStore.deduplicateAndPurgeLeads();
+      if (result.purgedCount > 0) {
+        showFeedback('success', `¡Base de datos saneada! Se detectaron, fusionaron y eliminaron ${result.purgedCount} registros duplicados de Firestore y memoria.`);
+      } else {
+        showFeedback('success', `¡Base de datos impecable! No se encontraron duplicados entre los ${result.totalRemaining} clientes registrados.`);
+      }
+    } catch (err) {
+      console.error('Error en depuración de duplicados:', err);
+      showFeedback('error', 'Error al depurar duplicados de la base de datos.');
+    } finally {
+      setIsDeduplicating(false);
+    }
+  };
+
   return (
     <div className="space-y-4 pb-16 md:pb-6">
       {/* Top Header Card */}
@@ -356,22 +390,42 @@ export const LeadTableModule: React.FC<LeadTableModuleProps> = ({
             </div>
             <div>
               <h1 className="text-xl font-bold text-[#2D3748] tracking-tight">
-                Grilla Dinámica de Leads
+                {isAdmin ? 'Grilla Dinámica de Leads' : 'Mis Clientes Asignados'}
               </h1>
               <p className="text-xs text-[#718096] font-medium">
-                Paginación numerada (máximo 10 registros). Selección múltiple y exportación con filtros.
+                {isAdmin 
+                  ? 'Paginación numerada (máximo 10 registros). Selección múltiple y exportación con filtros.' 
+                  : `Cartera exclusiva de ${currentUser.name} (${currentUser.email}) • ${filteredLeads.length} leads asignados.`
+                }
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {selectedLeadIds.length > 0 && (
+            {isAdmin && selectedLeadIds.length > 0 && (
               <button
                 onClick={() => setIsBulkDeleteModalOpen(true)}
                 className="px-3.5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition-all flex items-center gap-2 shadow-xs animate-scaleUp"
               >
                 <Trash2 className="w-4 h-4" />
                 <span>Eliminar ({selectedLeadIds.length})</span>
+              </button>
+            )}
+
+            {/* Deduplicate Action Button (Admin Only) */}
+            {isAdmin && (
+              <button
+                onClick={handleDeduplicate}
+                disabled={isDeduplicating}
+                title="Analizar y purgar automáticamente clientes duplicados por DNI, Teléfono o Nombre"
+                className="px-3.5 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition-all flex items-center gap-1.5 shadow-xs active:scale-98 cursor-pointer"
+              >
+                {isDeduplicating ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <ShieldCheck className="w-4 h-4" />
+                )}
+                <span>{isDeduplicating ? 'Depurando...' : 'Depurar Duplicados'}</span>
               </button>
             )}
 
@@ -395,13 +449,16 @@ export const LeadTableModule: React.FC<LeadTableModuleProps> = ({
               <span>PDF ({selectedLeadIds.length > 0 ? selectedLeadIds.length : filteredLeads.length})</span>
             </button>
 
-            <button
-              onClick={onOpenImport}
-              className="px-3.5 py-2.5 bg-[#40C4C0] hover:bg-[#32b2ae] text-white font-bold rounded-xl text-xs transition-all flex items-center gap-2 shadow-xs active:scale-98"
-            >
-              <Download className="w-4 h-4" />
-              <span>Importar Excel</span>
-            </button>
+            {/* Import Excel Button (Admin Only) */}
+            {isAdmin && (
+              <button
+                onClick={onOpenImport}
+                className="px-3.5 py-2.5 bg-[#40C4C0] hover:bg-[#32b2ae] text-white font-bold rounded-xl text-xs transition-all flex items-center gap-2 shadow-xs active:scale-98"
+              >
+                <Download className="w-4 h-4" />
+                <span>Importar Excel</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -458,20 +515,27 @@ export const LeadTableModule: React.FC<LeadTableModuleProps> = ({
             </CustomSelect>
           </div>
 
-          {/* Seller Filter */}
+          {/* Seller Filter (Admin Dropdown / Seller Locked Badge) */}
           <div>
-            <CustomSelect
-              icon={UserCheck}
-              variant="subtle"
-              value={selectedSeller}
-              onChange={(e) => setSelectedSeller(e.target.value)}
-            >
-              <option value="all">Todos los Vendedores</option>
-              <option value="unassigned">⚠️ Pool General (Sin Asignar)</option>
-              {activeSellers.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </CustomSelect>
+            {isAdmin ? (
+              <CustomSelect
+                icon={UserCheck}
+                variant="subtle"
+                value={selectedSeller}
+                onChange={(e) => setSelectedSeller(e.target.value)}
+              >
+                <option value="all">Todos los Vendedores</option>
+                <option value="unassigned">⚠️ Pool General (Sin Asignar)</option>
+                {activeSellers.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </CustomSelect>
+            ) : (
+              <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#F0FDFD] border border-[#40C4C0]/30 text-xs font-bold text-[#00807D] shadow-2xs">
+                <UserIcon className="w-4 h-4 text-[#40C4C0] shrink-0" />
+                <span className="truncate">Mi Cartera: {currentUser.name}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -620,20 +684,27 @@ export const LeadTableModule: React.FC<LeadTableModuleProps> = ({
                         </CustomSelect>
                       </td>
 
-                      {/* EDITABLE VENDEDOR DROPDOWN */}
+                      {/* VENDEDOR ASIGNADO */}
                       <td className="p-3">
-                        <CustomSelect
-                          variant={lead.vendedorId ? "table" : "amber"}
-                          value={lead.vendedorId || 'unassigned'}
-                          onChange={(e) => handleSellerChange(lead.id, e.target.value)}
-                        >
-                          <option value="unassigned">⚠️ Pool (Sin Asignar)</option>
-                          {activeSellers.map((s) => (
-                            <option key={s.id} value={s.id}>
-                              👤 {s.name}
-                            </option>
-                          ))}
-                        </CustomSelect>
+                        {isAdmin ? (
+                          <CustomSelect
+                            variant={lead.vendedorId ? "table" : "amber"}
+                            value={lead.vendedorId || 'unassigned'}
+                            onChange={(e) => handleSellerChange(lead.id, e.target.value)}
+                          >
+                            <option value="unassigned">⚠️ Pool (Sin Asignar)</option>
+                            {activeSellers.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                👤 {s.name}
+                              </option>
+                            ))}
+                          </CustomSelect>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-[#F0FDFD] text-[#00807D] border border-[#40C4C0]/30 shadow-2xs">
+                            <UserIcon className="w-3.5 h-3.5 text-[#40C4C0]" />
+                            <span>{lead.vendedorNombre || currentUser.name}</span>
+                          </span>
+                        )}
                       </td>
 
                       {/* Actions */}
@@ -657,14 +728,16 @@ export const LeadTableModule: React.FC<LeadTableModuleProps> = ({
                             <Eye className="w-3.5 h-3.5" />
                           </button>
 
-                          {/* Trash Delete Lead */}
-                          <button
-                            onClick={() => setLeadToDelete(lead)}
-                            className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition-colors active:scale-95"
-                            title="Eliminar Lead"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {/* Trash Delete Lead (Admin Only) */}
+                          {isAdmin && (
+                            <button
+                              onClick={() => setLeadToDelete(lead)}
+                              className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition-colors active:scale-95"
+                              title="Eliminar Lead"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

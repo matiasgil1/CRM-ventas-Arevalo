@@ -21,6 +21,7 @@ export const PoolModule: React.FC<PoolModuleProps> = ({
   campaigns,
   onSelectLead
 }) => {
+  const isAdmin = currentUser.role === 'admin';
   const [search, setSearch] = useState('');
   const [selectedCampaign, setSelectedCampaign] = useState<string>('all');
   const [claimedSuccessMsg, setClaimedSuccessMsg] = useState('');
@@ -119,23 +120,32 @@ export const PoolModule: React.FC<PoolModuleProps> = ({
     try {
       let appliedCount = 0;
       for (const id of selectedLeadIds) {
-        if (bulkCampaignId) {
-          await crmStore.assignLeadCampaign(id, bulkCampaignId);
-        }
-        if (bulkSellerId) {
-          if (bulkSellerId === 'unassigned') {
-            await crmStore.assignLeadToSeller(id, null, null);
-          } else {
-            const seller = users.find(u => u.id === bulkSellerId);
-            if (seller) {
-              await crmStore.assignLeadToSeller(id, seller.id, seller.name);
+        if (isAdmin) {
+          if (bulkCampaignId) {
+            await crmStore.assignLeadCampaign(id, bulkCampaignId);
+          }
+          if (bulkSellerId) {
+            if (bulkSellerId === 'unassigned') {
+              await crmStore.assignLeadToSeller(id, null, null);
+            } else {
+              const seller = users.find(u => u.id === bulkSellerId);
+              if (seller) {
+                await crmStore.assignLeadToSeller(id, seller.id, seller.name);
+              }
             }
           }
+        } else {
+          // Seller claims selected leads to their own portfolio
+          await crmStore.assignLeadToSeller(id, currentUser.id, currentUser.name);
         }
         appliedCount++;
       }
 
-      setClaimedSuccessMsg(`¡Actualización masiva completada! Se modificaron ${appliedCount} leads.`);
+      setClaimedSuccessMsg(
+        isAdmin 
+          ? `¡Actualización masiva completada! Se modificaron ${appliedCount} leads.`
+          : `¡Has tomado ${appliedCount} leads exitosamente para tu cartera!`
+      );
       setTimeout(() => setClaimedSuccessMsg(''), 4000);
       setSelectedLeadIds([]);
       setBulkCampaignId('');
@@ -208,20 +218,28 @@ export const PoolModule: React.FC<PoolModuleProps> = ({
                   onChange={handleSelectAll}
                   className="rounded text-[#40C4C0] focus:ring-[#40C4C0] w-4 h-4"
                 />
-                <span>Asignación Masiva ({selectedLeadIds.length} seleccionados)</span>
+                <span>
+                  {isAdmin 
+                    ? `Asignación Masiva (${selectedLeadIds.length} seleccionados)`
+                    : `Selección múltiple (${selectedLeadIds.length} seleccionados)`
+                  }
+                </span>
               </div>
 
               {selectedLeadIds.length > 0 && (
                 <button
                   onClick={handleApplyBulk}
-                  className="px-3 py-1.5 bg-[#40C4C0] hover:bg-[#32b2ae] text-white font-bold rounded-lg text-xs shadow-xs transition-all"
+                  className="px-3.5 py-1.5 bg-[#40C4C0] hover:bg-[#32b2ae] text-white font-bold rounded-xl text-xs shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
                 >
-                  Aplicar a Seleccionados
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>
+                    {isAdmin ? 'Aplicar Cambios a Seleccionados' : `Tomar (${selectedLeadIds.length}) para mi Cartera`}
+                  </span>
                 </button>
               )}
             </div>
 
-            {selectedLeadIds.length > 0 && (
+            {isAdmin && selectedLeadIds.length > 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-[#40C4C0]/20">
                 <div>
                   <label className="block text-[10px] font-bold text-[#718096] mb-0.5">Asignar Campaña Masiva:</label>
@@ -348,22 +366,24 @@ export const PoolModule: React.FC<PoolModuleProps> = ({
                   </CustomSelect>
                 </div>
 
-                {/* SELECT VENDEDOR DROPDOWN */}
-                <div>
-                  <label className="block text-[10px] font-bold text-[#718096] mb-1">
-                    👤 Seleccionar Vendedor:
-                  </label>
-                  <CustomSelect
-                    variant={lead.vendedorId ? "subtle" : "amber"}
-                    value={lead.vendedorId || 'unassigned'}
-                    onChange={(e) => handleLeadSellerChange(lead.id, e.target.value)}
-                  >
-                    <option value="unassigned">⚠️ Pool General (Sin Asignar)</option>
-                    {activeSellers.map(s => (
-                      <option key={s.id} value={s.id}>👤 {s.name}</option>
-                    ))}
-                  </CustomSelect>
-                </div>
+                {/* SELECT VENDEDOR DROPDOWN (Admin Only) */}
+                {isAdmin && (
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#718096] mb-1">
+                      👤 Seleccionar Vendedor:
+                    </label>
+                    <CustomSelect
+                      variant={lead.vendedorId ? "subtle" : "amber"}
+                      value={lead.vendedorId || 'unassigned'}
+                      onChange={(e) => handleLeadSellerChange(lead.id, e.target.value)}
+                    >
+                      <option value="unassigned">⚠️ Pool General (Sin Asignar)</option>
+                      {activeSellers.map(s => (
+                        <option key={s.id} value={s.id}>👤 {s.name}</option>
+                      ))}
+                    </CustomSelect>
+                  </div>
+                )}
               </div>
 
               <div className="pt-2 border-t border-[#E2E8F0] flex items-center justify-between">

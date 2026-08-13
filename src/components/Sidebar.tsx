@@ -29,13 +29,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems = [
     {
       id: 'table',
-      label: 'Grilla de Leads (Tabla)',
+      label: isAdmin ? 'Grilla de Leads (Tabla)' : 'Mis Leads (Tabla)',
       icon: Table,
       badge: null
     },
     {
       id: 'pipeline',
-      label: 'Pipeline (Kanban)',
+      label: isAdmin ? 'Pipeline (Kanban)' : 'Mi Pipeline (Kanban)',
       icon: LayoutGrid,
       badge: null
     },
@@ -45,19 +45,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Layers,
       badge: unassignedCount > 0 ? unassignedCount : null
     },
-    {
-      id: 'campaigns',
-      label: 'Gestión de Campañas',
-      icon: Megaphone,
-      badge: null
-    },
-    {
-      id: 'import',
-      label: 'Importar Base',
-      icon: FileUp,
-      badge: null
-    },
     ...(isAdmin ? [
+      {
+        id: 'campaigns',
+        label: 'Gestión de Campañas',
+        icon: Megaphone,
+        badge: null
+      },
+      {
+        id: 'import',
+        label: 'Importar Base',
+        icon: FileUp,
+        badge: null
+      },
       {
         id: 'dashboard',
         label: 'KPIs & Reportes',

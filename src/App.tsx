@@ -114,7 +114,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'import' && (
+          {activeTab === 'import' && currentUser.role === 'admin' && (
             <ImportModule
               campaigns={campaigns}
               currentUser={currentUser}
@@ -123,7 +123,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'campaigns' && (
+          {activeTab === 'campaigns' && currentUser.role === 'admin' && (
             <CampaignManagementModule
               campaigns={campaigns}
               leads={leads}

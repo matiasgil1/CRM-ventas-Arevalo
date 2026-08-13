@@ -15,6 +15,7 @@ import { db, loginWithGoogle as firebaseLoginWithGoogle, logoutFirebase } from '
 import { Campaign, Lead, LeadStatus, User, SUPER_ADMIN_EMAIL, SyncLog, SyncHealthState } from '../types/crm';
 import { formatPeriodMMYYYY } from '../utils/formatters';
 import { findMatchingSeller } from '../utils/sellerUtils';
+import { areLeadsDuplicate, mergeDuplicateLeads, normalizeDni, normalizePhone, normalizeName } from '../utils/deduplicationUtils';
 
 const USERS_KEY = 'arevalo_crm_users_v2';
 const CAMPAIGNS_KEY = 'arevalo_crm_campaigns_v2';
@@ -186,10 +187,21 @@ class CrmStore {
       this.campaigns = storedCampaigns ? JSON.parse(storedCampaigns) : [];
 
       const storedLeads = localStorage.getItem(LEADS_KEY);
-      this.leads = storedLeads ? JSON.parse(storedLeads) : [];
-      this.leads.forEach(l => {
-        l.ultimoPeriodoPagado = formatPeriodMMYYYY(l.ultimoPeriodoPagado);
+      const rawLeads: Lead[] = storedLeads ? JSON.parse(storedLeads) : [];
+      
+      // In-memory deduplication of cached leads
+      const uniqueLocalLeads: Lead[] = [];
+      rawLeads.forEach(lead => {
+        lead.ultimoPeriodoPagado = formatPeriodMMYYYY(lead.ultimoPeriodoPagado);
+        const dupIdx = uniqueLocalLeads.findIndex(existing => areLeadsDuplicate(existing, lead));
+        if (dupIdx >= 0) {
+          const { master } = mergeDuplicateLeads(uniqueLocalLeads[dupIdx], lead);
+          uniqueLocalLeads[dupIdx] = master;
+        } else {
+          uniqueLocalLeads.push(lead);
+        }
       });
+      this.leads = uniqueLocalLeads;
 
       const storedCurrentUser = localStorage.getItem(CURRENT_USER_KEY);
       if (storedCurrentUser) {
@@ -278,28 +290,77 @@ class CrmStore {
         this.notify();
       });
 
-      // 3. Listen to Leads Collection
+      // 3. Listen to Leads Collection with Strict Anti-Duplication Engine
       onSnapshot(collection(db, 'leads'), (snapshot) => {
-        const remoteLeadsMap = new Map<string, Lead>();
+        const rawRemoteLeads: Lead[] = [];
         snapshot.forEach((docSnap) => {
           const l = docSnap.data() as Lead;
+          l.id = docSnap.id || l.id;
           l.ultimoPeriodoPagado = formatPeriodMMYYYY(l.ultimoPeriodoPagado);
-          remoteLeadsMap.set(l.id, l);
+          rawRemoteLeads.push(l);
         });
 
-        // Merge local leads if they are not in remote yet (e.g. created locally)
+        // Deduplicate remote leads from Firestore snapshot
+        const uniqueRemoteMap = new Map<string, Lead>();
+        const duplicateDocIdsToDelete: string[] = [];
+
+        rawRemoteLeads.forEach((lead) => {
+          let foundMasterKey: string | null = null;
+          for (const [key, existingLead] of uniqueRemoteMap.entries()) {
+            if (areLeadsDuplicate(existingLead, lead)) {
+              foundMasterKey = key;
+              break;
+            }
+          }
+
+          if (foundMasterKey) {
+            const masterLead = uniqueRemoteMap.get(foundMasterKey)!;
+            const { master, duplicateId } = mergeDuplicateLeads(masterLead, lead);
+            uniqueRemoteMap.set(foundMasterKey, master);
+            if (lead.id !== master.id) {
+              duplicateDocIdsToDelete.push(lead.id);
+            } else if (duplicateId && duplicateId !== master.id) {
+              duplicateDocIdsToDelete.push(duplicateId);
+            }
+          } else {
+            uniqueRemoteMap.set(lead.id, lead);
+          }
+        });
+
+        // Async purge of duplicate documents found in Firestore
+        if (duplicateDocIdsToDelete.length > 0) {
+          console.warn(`[CRM Anti-Duplication] Purgando ${duplicateDocIdsToDelete.length} duplicados en Firestore...`);
+          duplicateDocIdsToDelete.forEach((dupId) => {
+            deleteDoc(doc(db, 'leads', dupId)).catch(console.error);
+          });
+          this.addSyncLog({
+            type: 'firestore',
+            status: 'warning',
+            message: `Limpieza automática: se purgaron ${duplicateDocIdsToDelete.length} registros duplicados de Firestore`
+          });
+        }
+
+        // Merge local leads ONLY if they represent genuinely new distinct persons
         let mergedNewLocal = 0;
         this.leads.forEach((localLead) => {
-          if (!remoteLeadsMap.has(localLead.id)) {
+          let matchesRemote = false;
+          for (const [, remoteLead] of uniqueRemoteMap.entries()) {
+            if (areLeadsDuplicate(remoteLead, localLead)) {
+              matchesRemote = true;
+              break;
+            }
+          }
+
+          if (!matchesRemote) {
             setDoc(doc(db, 'leads', localLead.id), localLead, { merge: true }).catch(console.error);
             this.notifyWebhook(localLead);
-            remoteLeadsMap.set(localLead.id, localLead);
+            uniqueRemoteMap.set(localLead.id, localLead);
             mergedNewLocal++;
           }
         });
 
-        const mergedLeads = Array.from(remoteLeadsMap.values());
-        mergedLeads.sort((a, b) => new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime());
+        const mergedLeads = Array.from(uniqueRemoteMap.values());
+        mergedLeads.sort((a, b) => new Date(b.creadoEn || 0).getTime() - new Date(a.creadoEn || 0).getTime());
         this.leads = mergedLeads;
         this.isFirebaseConnected = true;
         this.lastFirestoreSync = new Date().toISOString();
@@ -878,17 +939,67 @@ class CrmStore {
     return { success: true };
   }
 
+  public async deduplicateAndPurgeLeads(): Promise<{ purgedCount: number; totalRemaining: number; mergedDetails: string[] }> {
+    const uniqueLeads: Lead[] = [];
+    const duplicateIdsToDelete: string[] = [];
+    const mergedDetails: string[] = [];
+
+    for (const lead of this.leads) {
+      const existingIdx = uniqueLeads.findIndex(existing => areLeadsDuplicate(existing, lead));
+      if (existingIdx >= 0) {
+        const existingLead = uniqueLeads[existingIdx];
+        const { master, duplicateId } = mergeDuplicateLeads(existingLead, lead);
+        uniqueLeads[existingIdx] = master;
+        if (duplicateId && !duplicateIdsToDelete.includes(duplicateId)) {
+          duplicateIdsToDelete.push(duplicateId);
+        }
+        mergedDetails.push(`${master.nombre} ${master.apellido} (DNI: ${master.dni || 'S/D'}, Tel: ${master.telefono})`);
+      } else {
+        uniqueLeads.push(lead);
+      }
+    }
+
+    // 1. Delete duplicates from Firestore
+    if (duplicateIdsToDelete.length > 0) {
+      const deletePromises = duplicateIdsToDelete.map(id => deleteDoc(doc(db, 'leads', id)).catch(console.error));
+      await Promise.allSettled(deletePromises);
+    }
+
+    // 2. Update consolidated master leads in Firestore
+    for (const lead of uniqueLeads) {
+      setDoc(doc(db, 'leads', lead.id), lead, { merge: true }).catch(console.error);
+    }
+
+    this.leads = uniqueLeads;
+    this.saveToStorage();
+    this.addSyncLog({
+      type: 'firestore',
+      status: duplicateIdsToDelete.length > 0 ? 'info' : 'success',
+      message: duplicateIdsToDelete.length > 0 
+        ? `Depuración completada: Se eliminaron y fusionaron ${duplicateIdsToDelete.length} duplicados en la base de datos`
+        : 'Verificación de duplicados: La base de datos se encuentra 100% limpia y sin duplicados'
+    });
+    this.notify();
+
+    return {
+      purgedCount: duplicateIdsToDelete.length,
+      totalRemaining: uniqueLeads.length,
+      mergedDetails
+    };
+  }
+
   public async importLeads(
     leadsData: Array<{ nombre: string; apellido: string; dni: string; telefono: string; ultimoPeriodoPagado: string; vendedor?: string }>,
     campanaId: string
-  ): Promise<{ count: number; campaignName: string }> {
+  ): Promise<{ count: number; newCount: number; updatedCount: number; campaignName: string }> {
     const campaign = this.campaigns.find(c => c.id === campanaId);
     const campaignName = campaign ? campaign.nombre : 'Campaña General';
 
     const now = new Date().toISOString();
-    let count = 0;
+    let newCount = 0;
+    let updatedCount = 0;
 
-    const importedLeadsList: Lead[] = [];
+    const leadsToSaveFirestore: Lead[] = [];
 
     leadsData.forEach((row, idx) => {
       if (!row.nombre && !row.telefono && !row.dni) return;
@@ -897,51 +1008,105 @@ class CrmStore {
       const vendedorId = matchedSeller ? matchedSeller.id : null;
       const vendedorNombre = matchedSeller ? matchedSeller.name : (row.vendedor ? row.vendedor.trim() : null);
 
-      const historyNote = matchedSeller 
-        ? `Importado en campaña "${campaignName}" y asignado a ${matchedSeller.name}`
-        : `Importado en campaña "${campaignName}"`;
-
-      const newLead: Lead = {
-        id: `lead-imp-${Date.now()}-${idx}`,
+      const candidateLeadData = {
         nombre: (row.nombre || 'Cliente').trim(),
         apellido: (row.apellido || '').trim(),
         dni: (row.dni || 'S/D').trim(),
         telefono: (row.telefono || '').replace(/\D/g, ''),
-        ultimoPeriodoPagado: formatPeriodMMYYYY(row.ultimoPeriodoPagado),
-        campanaId,
-        campanaNombre: campaignName,
-        vendedorId,
-        vendedorNombre,
-        fechaAsignacion: matchedSeller ? now : undefined,
-        estado: 'pendiente',
-        creadoEn: now,
-        historial: [
-          {
-            id: 'h-' + Date.now() + '-' + idx,
-            fecha: now,
-            nuevoEstado: 'pendiente',
-            usuarioNombre: this.currentUser?.name || 'Importación Excel',
-            nota: historyNote
-          }
-        ]
+        ultimoPeriodoPagado: formatPeriodMMYYYY(row.ultimoPeriodoPagado)
       };
 
-      importedLeadsList.push(newLead);
-      this.leads.unshift(newLead);
-      count++;
+      // Check if candidate already exists in this.leads or in leadsToSaveFirestore
+      const existingIdx = this.leads.findIndex(l => areLeadsDuplicate(l, candidateLeadData));
+
+      if (existingIdx >= 0) {
+        // Update Existing Lead in-place (NO DUPLICATION!)
+        const existing = this.leads[existingIdx];
+        
+        if (candidateLeadData.ultimoPeriodoPagado) {
+          existing.ultimoPeriodoPagado = candidateLeadData.ultimoPeriodoPagado;
+        }
+        if (candidateLeadData.dni && candidateLeadData.dni !== 'S/D' && (!existing.dni || existing.dni === 'S/D')) {
+          existing.dni = candidateLeadData.dni;
+        }
+        if (candidateLeadData.telefono && !existing.telefono) {
+          existing.telefono = candidateLeadData.telefono;
+        }
+        if (campanaId && (!existing.campanaId || existing.campanaId !== campanaId)) {
+          existing.campanaId = campanaId;
+          existing.campanaNombre = campaignName;
+        }
+        if (matchedSeller && !existing.vendedorId) {
+          existing.vendedorId = matchedSeller.id;
+          existing.vendedorNombre = matchedSeller.name;
+          existing.fechaAsignacion = now;
+        }
+
+        existing.historial = existing.historial || [];
+        existing.historial.push({
+          id: 'h-' + Date.now() + '-' + idx,
+          fecha: now,
+          nuevoEstado: existing.estado,
+          usuarioNombre: this.currentUser?.name || 'Importación Excel',
+          nota: `Datos actualizados desde importación Excel (Campaña: "${campaignName}", Pago: ${existing.ultimoPeriodoPagado}) - Sin duplicar`
+        });
+
+        leadsToSaveFirestore.push(existing);
+        updatedCount++;
+      } else {
+        // Genuinely New Lead
+        const cleanDniVal = normalizeDni(candidateLeadData.dni);
+        const cleanPhoneVal = normalizePhone(candidateLeadData.telefono);
+        const leadId = cleanDniVal 
+          ? `lead-dni-${cleanDniVal}` 
+          : (cleanPhoneVal ? `lead-tel-${cleanPhoneVal}` : `lead-imp-${Date.now()}-${idx}`);
+
+        const historyNote = matchedSeller 
+          ? `Importado en campaña "${campaignName}" y asignado a ${matchedSeller.name}`
+          : `Importado en campaña "${campaignName}"`;
+
+        const newLead: Lead = {
+          id: leadId,
+          nombre: candidateLeadData.nombre,
+          apellido: candidateLeadData.apellido,
+          dni: candidateLeadData.dni,
+          telefono: candidateLeadData.telefono,
+          ultimoPeriodoPagado: candidateLeadData.ultimoPeriodoPagado,
+          campanaId,
+          campanaNombre: campaignName,
+          vendedorId,
+          vendedorNombre,
+          fechaAsignacion: matchedSeller ? now : undefined,
+          estado: 'pendiente',
+          creadoEn: now,
+          historial: [
+            {
+              id: 'h-' + Date.now() + '-' + idx,
+              fecha: now,
+              nuevoEstado: 'pendiente',
+              usuarioNombre: this.currentUser?.name || 'Importación Excel',
+              nota: historyNote
+            }
+          ]
+        };
+
+        this.leads.unshift(newLead);
+        leadsToSaveFirestore.push(newLead);
+        newCount++;
+      }
     });
 
     this.saveToStorage();
 
-    // Firestore Batch Import
+    // Firestore Batch Save (Insert new + Update existing)
     try {
       const batchSize = 400;
-      for (let i = 0; i < importedLeadsList.length; i += batchSize) {
+      for (let i = 0; i < leadsToSaveFirestore.length; i += batchSize) {
         const batch = writeBatch(db);
-        const chunk = importedLeadsList.slice(i, i + batchSize);
+        const chunk = leadsToSaveFirestore.slice(i, i + batchSize);
         chunk.forEach(leadItem => {
           const ref = doc(db, 'leads', leadItem.id);
-          batch.set(ref, leadItem);
+          batch.set(ref, leadItem, { merge: true });
         });
         await batch.commit();
       }
@@ -949,7 +1114,18 @@ class CrmStore {
       console.error('Error saving imported leads to Firestore:', err);
     }
 
-    return { count, campaignName };
+    this.addSyncLog({
+      type: 'firestore',
+      status: 'success',
+      message: `Importación completada: ${newCount} nuevos leads creados, ${updatedCount} existentes actualizados (0 duplicados)`
+    });
+
+    return { 
+      count: newCount + updatedCount, 
+      newCount, 
+      updatedCount, 
+      campaignName 
+    };
   }
 }
 

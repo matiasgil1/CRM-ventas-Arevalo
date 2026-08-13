@@ -4,12 +4,13 @@ import { crmStore } from '../services/crmStore';
 import { formatPeriodMMYYYY } from '../utils/formatters';
 import { analyzePhoneWhatsApp } from '../utils/phoneUtils';
 import { findMatchingSeller } from '../utils/sellerUtils';
+import { areLeadsDuplicate } from '../utils/deduplicationUtils';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import { 
   FileUp, Plus, Download, CheckCircle, AlertCircle, 
   Table, Sparkles, FolderPlus, ArrowRight, FileSpreadsheet, FileText,
-  MessageCircle, Phone, Check, UserCheck
+  MessageCircle, Phone, Check, UserCheck, RefreshCw, UserPlus
 } from 'lucide-react';
 
 interface ImportModuleProps {
@@ -366,7 +367,7 @@ export const ImportModule: React.FC<ImportModuleProps> = ({
     const res = await crmStore.importLeads(parsedData, selectedCampaignId);
     setImportStatus({
       success: true,
-      msg: `¡Éxito! Se han importado ${res.count} clientes en la campaña "${res.campaignName}". Ingresaron al Pool General.`
+      msg: `¡Importación completada! Se procesaron ${res.count} clientes en la campaña "${res.campaignName}": ${res.newCount} nuevos leads creados y ${res.updatedCount} existentes actualizados sin duplicación.`
     });
 
     setParsedData([]);

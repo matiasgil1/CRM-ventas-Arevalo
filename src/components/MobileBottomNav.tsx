@@ -65,31 +65,35 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         <span className="text-[10px]">Pool</span>
       </button>
 
-      {/* Tab 3: Campañas */}
-      <button
-        onClick={() => setActiveTab('campaigns')}
-        className={`flex flex-col items-center justify-center shrink-0 min-w-[56px] h-12 px-2 rounded-xl transition-all ${
-          activeTab === 'campaigns'
-            ? 'text-[#40C4C0] bg-[#F0FDFD] font-extrabold shadow-2xs'
-            : 'text-[#718096] font-medium hover:text-[#2D3748]'
-        }`}
-      >
-        <Megaphone className="w-5 h-5 mb-0.5" />
-        <span className="text-[10px]">Campañas</span>
-      </button>
+      {/* Tab 3: Campañas (Admin) */}
+      {isAdmin && (
+        <button
+          onClick={() => setActiveTab('campaigns')}
+          className={`flex flex-col items-center justify-center shrink-0 min-w-[56px] h-12 px-2 rounded-xl transition-all ${
+            activeTab === 'campaigns'
+              ? 'text-[#40C4C0] bg-[#F0FDFD] font-extrabold shadow-2xs'
+              : 'text-[#718096] font-medium hover:text-[#2D3748]'
+          }`}
+        >
+          <Megaphone className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px]">Campañas</span>
+        </button>
+      )}
 
-      {/* Tab 4: Import */}
-      <button
-        onClick={() => setActiveTab('import')}
-        className={`flex flex-col items-center justify-center shrink-0 min-w-[56px] h-12 px-2 rounded-xl transition-all ${
-          activeTab === 'import'
-            ? 'text-[#40C4C0] bg-[#F0FDFD] font-extrabold shadow-2xs'
-            : 'text-[#718096] font-medium hover:text-[#2D3748]'
-        }`}
-      >
-        <FileUp className="w-5 h-5 mb-0.5" />
-        <span className="text-[10px]">Importar</span>
-      </button>
+      {/* Tab 4: Import (Admin) */}
+      {isAdmin && (
+        <button
+          onClick={() => setActiveTab('import')}
+          className={`flex flex-col items-center justify-center shrink-0 min-w-[56px] h-12 px-2 rounded-xl transition-all ${
+            activeTab === 'import'
+              ? 'text-[#40C4C0] bg-[#F0FDFD] font-extrabold shadow-2xs'
+              : 'text-[#718096] font-medium hover:text-[#2D3748]'
+          }`}
+        >
+          <FileUp className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px]">Importar</span>
+        </button>
+      )}
 
       {/* Tab 6: Dashboard (Admin) */}
       {isAdmin && (

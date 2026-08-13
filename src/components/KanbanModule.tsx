@@ -2,10 +2,11 @@ import React, { useState, useMemo } from 'react';
 import { Lead, LeadStatus, Campaign, LEAD_STATUS_CONFIG, User } from '../types/crm';
 import { crmStore } from '../services/crmStore';
 import { formatPeriodMMYYYY } from '../utils/formatters';
+import { isLeadAssignedToUser } from '../utils/sellerUtils';
 import { CustomSelect } from './CustomSelect';
 import { 
   Search, Filter, Phone, MessageCircle, Clock, UserCheck, 
-  ChevronRight, ChevronLeft, ArrowRight, AlertTriangle, Layers 
+  ChevronRight, ChevronLeft, ArrowRight, AlertTriangle, Layers, User as UserIcon
 } from 'lucide-react';
 
 interface KanbanModuleProps {
@@ -36,11 +37,12 @@ export const KanbanModule: React.FC<KanbanModuleProps> = ({
   onRequestRejection,
   onOpenPool
 }) => {
+  const isAdmin = currentUser.role === 'admin';
   const [search, setSearch] = useState('');
   const [selectedCampaign, setSelectedCampaign] = useState<string>('all');
   const [selectedSeller, setSelectedSeller] = useState<string>('all');
   const [viewFilter, setViewFilter] = useState<'mine' | 'all'>(
-    currentUser.role === 'admin' ? 'all' : 'mine'
+    isAdmin ? 'all' : 'mine'
   );
   const [activeMobileStage, setActiveMobileStage] = useState<LeadStatus>('pendiente');
 
@@ -51,41 +53,47 @@ export const KanbanModule: React.FC<KanbanModuleProps> = ({
     return nonRejected.length > 0 ? nonRejected : users;
   }, [users]);
 
-  // Filter leads for this view
-  const filteredLeads = leads.filter((lead) => {
-    // Role/Ownership filter
-    if (viewFilter === 'mine') {
-      if (lead.vendedorId !== currentUser.id) return false;
-    } else {
-      // 'all' shows assigned leads unless seller filter overrides
-      if (!lead.vendedorId && selectedSeller !== 'unassigned') return false;
-    }
+  // Filter leads for this view with strict role isolation
+  const filteredLeads = useMemo(() => {
+    return leads.filter((lead) => {
+      // Role/Ownership filter
+      if (!isAdmin) {
+        if (!isLeadAssignedToUser(lead, currentUser)) return false;
+      } else {
+        if (viewFilter === 'mine') {
+          if (!isLeadAssignedToUser(lead, currentUser)) return false;
+        } else {
+          // 'all' shows assigned leads unless seller filter overrides
+          if (!lead.vendedorId && selectedSeller !== 'unassigned') return false;
+        }
+      }
 
-    // Campaign filter
-    if (selectedCampaign !== 'all' && lead.campanaId !== selectedCampaign) {
-      return false;
-    }
-
-    // Seller filter
-    if (selectedSeller !== 'all') {
-      if (selectedSeller === 'unassigned') {
-        if (lead.vendedorId) return false;
-      } else if (lead.vendedorId !== selectedSeller) {
+      // Campaign filter
+      if (selectedCampaign !== 'all' && lead.campanaId !== selectedCampaign) {
         return false;
       }
-    }
 
-    // Search query
-    if (search.trim()) {
-      const q = search.toLowerCase().trim();
-      const matchName = `${lead.nombre} ${lead.apellido}`.toLowerCase().includes(q);
-      const matchDNI = lead.dni.includes(q);
-      const matchPhone = lead.telefono.includes(q);
-      if (!matchName && !matchDNI && !matchPhone) return false;
-    }
+      // Seller filter (admin only)
+      if (isAdmin && selectedSeller !== 'all') {
+        if (selectedSeller === 'unassigned') {
+          if (lead.vendedorId) return false;
+        } else if (lead.vendedorId !== selectedSeller) {
+          return false;
+        }
+      }
 
-    return true;
-  });
+      // Search query
+      if (search.trim()) {
+        const q = search.toLowerCase().trim();
+        const matchName = `${lead.nombre} ${lead.apellido}`.toLowerCase().includes(q);
+        const matchDNI = lead.dni.includes(q);
+        const matchPhone = lead.telefono.includes(q);
+        if (!matchName && !matchDNI && !matchPhone) return false;
+      }
+
+      return true;
+    });
+  }, [leads, isAdmin, currentUser, viewFilter, selectedCampaign, selectedSeller, search]);
 
   const getLeadsForStage = (stage: LeadStatus) => {
     return filteredLeads.filter((l) => l.estado === stage);
@@ -107,7 +115,7 @@ export const KanbanModule: React.FC<KanbanModuleProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <h1 className="text-lg sm:text-xl font-bold text-[#2D3748] tracking-tight">
-              Pipeline de Gestión
+              {isAdmin ? 'Pipeline de Gestión' : 'Pipeline de Mis Leads'}
             </h1>
             <span className="bg-[#F0FDFD] text-[#40C4C0] font-bold text-xs px-3 py-1 rounded-full border border-[#40C4C0]/20">
               {filteredLeads.length} leads
@@ -116,7 +124,7 @@ export const KanbanModule: React.FC<KanbanModuleProps> = ({
 
           {/* Mine vs All toggle for Admins */}
           <div className="flex items-center gap-2">
-            {currentUser.role === 'admin' && (
+            {isAdmin && (
               <div className="bg-[#F3F7F7] p-1 rounded-xl flex items-center text-xs font-bold border border-[#E2E8F0]">
                 <button
                   onClick={() => setViewFilter('mine')}
@@ -139,7 +147,7 @@ export const KanbanModule: React.FC<KanbanModuleProps> = ({
 
             <button
               onClick={onOpenPool}
-              className="px-4 py-2 bg-[#F0FDFD] hover:bg-[#e2f9f8] text-[#40C4C0] border border-[#40C4C0]/30 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs"
+              className="px-4 py-2 bg-[#F0FDFD] hover:bg-[#e2f9f8] text-[#40C4C0] border border-[#40C4C0]/30 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
             >
               <Layers className="w-4 h-4 text-[#40C4C0]" />
               <span>Tomar del Pool</span>
@@ -175,18 +183,25 @@ export const KanbanModule: React.FC<KanbanModuleProps> = ({
           </div>
 
           <div className="flex-1">
-            <CustomSelect
-              icon={UserCheck}
-              variant="subtle"
-              value={selectedSeller}
-              onChange={(e) => setSelectedSeller(e.target.value)}
-            >
-              <option value="all">Todos los Vendedores</option>
-              <option value="unassigned">⚠️ Pool General (Sin Asignar)</option>
-              {activeSellers.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </CustomSelect>
+            {isAdmin ? (
+              <CustomSelect
+                icon={UserCheck}
+                variant="subtle"
+                value={selectedSeller}
+                onChange={(e) => setSelectedSeller(e.target.value)}
+              >
+                <option value="all">Todos los Vendedores</option>
+                <option value="unassigned">⚠️ Pool General (Sin Asignar)</option>
+                {activeSellers.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </CustomSelect>
+            ) : (
+              <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#F0FDFD] border border-[#40C4C0]/30 text-xs font-bold text-[#00807D] shadow-2xs">
+                <UserIcon className="w-4 h-4 text-[#40C4C0] shrink-0" />
+                <span className="truncate">Mi Cartera: {currentUser.name}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
