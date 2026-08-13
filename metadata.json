@@ -1,0 +1,6 @@
+{
+  "name": "Arevalo Servicios Sociales CRM",
+  "description": "Sistema CRM Mobile-First para Arevalo Servicios Sociales con gestión de campañas, importación Excel, pipeline Kanban, integración WhatsApp y métricas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

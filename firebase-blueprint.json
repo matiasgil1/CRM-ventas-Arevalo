@@ -1,0 +1,53 @@
+{
+  "entities": {
+    "users": {
+      "title": "Users",
+      "description": "CRM Users and Sellers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "vendedor"] },
+        "status": { "type": "string", "enum": ["approved", "pending", "rejected", "suspended"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "role", "status"]
+    },
+    "campaigns": {
+      "title": "Campaigns",
+      "description": "Sales Campaigns",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nombre": { "type": "string" },
+        "descripcion": { "type": "string" },
+        "scriptTemplate": { "type": "string" },
+        "creadoEn": { "type": "string" },
+        "creadoPor": { "type": "string" }
+      },
+      "required": ["id", "nombre"]
+    },
+    "leads": {
+      "title": "Leads",
+      "description": "Sales Leads",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nombre": { "type": "string" },
+        "apellido": { "type": "string" },
+        "dni": { "type": "string" },
+        "telefono": { "type": "string" },
+        "ultimoPeriodoPagado": { "type": "string" },
+        "campanaId": { "type": "string" },
+        "campanaNombre": { "type": "string" },
+        "vendedorId": { "type": ["string", "null"] },
+        "vendedorNombre": { "type": ["string", "null"] },
+        "estado": { "type": "string" },
+        "creadoEn": { "type": "string" }
+      },
+      "required": ["id", "nombre", "apellido", "dni"]
+    }
+  }
+}
