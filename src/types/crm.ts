@@ -13,6 +13,29 @@ export interface User {
   status: UserStatus;
   createdAt: string;
   phone?: string;
+  assignedSellerName?: string | null; // The seller entity/profile name designated by the Admin (e.g. "Juan Carlos Arévalo")
+}
+
+export type AuditCategory = 
+  | 'auth' 
+  | 'leads' 
+  | 'pool' 
+  | 'campaigns' 
+  | 'users' 
+  | 'export' 
+  | 'system';
+
+export interface AuditLog {
+  id: string;
+  timestamp: string;
+  userId: string;
+  userEmail: string;
+  userName: string;
+  userRole: UserRole;
+  category: AuditCategory;
+  action: string;
+  description: string;
+  details?: string;
 }
 
 export type LeadStatus = 

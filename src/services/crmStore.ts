@@ -12,7 +12,7 @@ import {
   query
 } from 'firebase/firestore';
 import { db, loginWithGoogle as firebaseLoginWithGoogle, logoutFirebase } from './firebase';
-import { Campaign, Lead, LeadStatus, User, SUPER_ADMIN_EMAIL, SyncLog, SyncHealthState } from '../types/crm';
+import { Campaign, Lead, LeadStatus, User, SUPER_ADMIN_EMAIL, SyncLog, SyncHealthState, AuditLog, AuditCategory } from '../types/crm';
 import { formatPeriodMMYYYY } from '../utils/formatters';
 import { findMatchingSeller } from '../utils/sellerUtils';
 import { areLeadsDuplicate, mergeDuplicateLeads, normalizeDni, normalizePhone, normalizeName } from '../utils/deduplicationUtils';
@@ -22,6 +22,36 @@ const CAMPAIGNS_KEY = 'arevalo_crm_campaigns_v2';
 const LEADS_KEY = 'arevalo_crm_leads_v2';
 const CURRENT_USER_KEY = 'arevalo_crm_current_user_v2';
 const SYNC_LOGS_KEY = 'arevalo_crm_sync_logs_v1';
+const AUDIT_LOGS_KEY = 'arevalo_crm_audit_logs_v1';
+
+/**
+ * Strips undefined properties recursively from objects and arrays
+ * so that Firebase Firestore setDoc/updateDoc never rejects payloads.
+ */
+function sanitizeForFirestore<T>(data: T): any {
+  if (data === null || data === undefined) {
+    return null;
+  }
+  if (typeof data !== 'object') {
+    return data;
+  }
+  if (data instanceof Date) {
+    return data.toISOString();
+  }
+  if (Array.isArray(data)) {
+    return data
+      .filter(item => item !== undefined)
+      .map(item => sanitizeForFirestore(item));
+  }
+  const clean: Record<string, any> = {};
+  for (const [key, val] of Object.entries(data as Record<string, any>)) {
+    if (val === undefined) {
+      continue;
+    }
+    clean[key] = sanitizeForFirestore(val);
+  }
+  return clean;
+}
 
 // Default Super Admin Document
 const SUPER_ADMIN_USER: User = {
@@ -45,6 +75,7 @@ class CrmStore {
   private sheetsWebhookUrl: string = localStorage.getItem('arevalo_sheets_webhook') || DEFAULT_SHEETS_WEBHOOK_URL;
   private isFirebaseConnected = false;
   private syncLogs: SyncLog[] = [];
+  private auditLogs: AuditLog[] = [];
   private lastFirestoreSync: string | null = null;
   private lastWebhookSync: string | null = null;
   private lastWebhookStatus: 'success' | 'error' | 'idle' | 'syncing' = 'idle';
@@ -61,6 +92,12 @@ class CrmStore {
       status: this.sheetsWebhookUrl ? 'info' : 'warning',
       message: 'URL de Webhook configurada',
       details: `Configurado: ${this.sheetsWebhookUrl.substring(0, 35)}...`
+    });
+    this.addAuditLog({
+      category: 'system',
+      action: 'CONFIGURAR_WEBHOOK',
+      description: 'Se configuró el webhook de sincronización con Google Sheets',
+      details: this.sheetsWebhookUrl
     });
     this.notify();
   }
@@ -81,6 +118,83 @@ class CrmStore {
       console.warn('Storage limit for sync logs:', e);
     }
     this.notify();
+  }
+
+  public addAuditLog(entry: {
+    category: AuditCategory;
+    action: string;
+    description: string;
+    details?: string;
+    user?: User | null;
+  }) {
+    const actingUser = entry.user !== undefined ? entry.user : this.currentUser;
+    const newLog: AuditLog = {
+      id: 'aud-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
+      timestamp: new Date().toISOString(),
+      userId: actingUser?.id || 'usr-anonymous',
+      userEmail: actingUser?.email || 'anonimo@arevalo.com',
+      userName: actingUser?.name || 'Usuario No Autenticado',
+      userRole: actingUser?.role || 'vendedor',
+      category: entry.category,
+      action: entry.action,
+      description: entry.description,
+      ...(entry.details !== undefined && entry.details !== null ? { details: String(entry.details) } : {})
+    };
+
+    this.auditLogs.unshift(newLog);
+    if (this.auditLogs.length > 500) {
+      this.auditLogs = this.auditLogs.slice(0, 500);
+    }
+
+    try {
+      localStorage.setItem(AUDIT_LOGS_KEY, JSON.stringify(this.auditLogs));
+    } catch (e) {
+      console.warn('Storage limit for audit logs in localStorage:', e);
+    }
+
+    // Persist to Firestore asynchronously with sanitized data
+    try {
+      const sanitized = sanitizeForFirestore(newLog);
+      setDoc(doc(db, 'auditLogs', newLog.id), sanitized).catch((err) => {
+        console.warn('Failed to persist audit log to Firestore:', err);
+      });
+    } catch (e) {
+      console.warn('Failed to prepare audit log for Firestore:', e);
+    }
+
+    this.notify();
+  }
+
+  public getAuditLogs(): AuditLog[] {
+    return [...this.auditLogs];
+  }
+
+  public async clearAuditLogs(): Promise<void> {
+    const logsToDelete = [...this.auditLogs];
+    this.auditLogs = [];
+    localStorage.removeItem(AUDIT_LOGS_KEY);
+    this.notify();
+
+    try {
+      const batchSize = 300;
+      for (let i = 0; i < logsToDelete.length; i += batchSize) {
+        const batch = writeBatch(db);
+        const chunk = logsToDelete.slice(i, i + batchSize);
+        chunk.forEach(log => {
+          const ref = doc(db, 'auditLogs', log.id);
+          batch.delete(ref);
+        });
+        await batch.commit();
+      }
+    } catch (e) {
+      console.warn('Error clearing audit logs in Firestore:', e);
+    }
+
+    this.addAuditLog({
+      category: 'system',
+      action: 'LIMPIAR_AUDITORIA',
+      description: 'El Super Administrador purgó el historial de auditoría'
+    });
   }
 
   public getSyncHealthState(): SyncHealthState {
@@ -220,6 +334,9 @@ class CrmStore {
           message: 'Sistema de caché local e historial de sincronización iniciado correctamente'
         });
       }
+
+      const storedAudit = localStorage.getItem(AUDIT_LOGS_KEY);
+      this.auditLogs = storedAudit ? JSON.parse(storedAudit) : [];
     } catch (e) {
       console.error('Error loading local CRM cache:', e);
       this.users = [SUPER_ADMIN_USER];
@@ -246,7 +363,7 @@ class CrmStore {
         const superAdminDoc = this.users.find(u => u.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase());
         if (!superAdminDoc) {
           this.users.unshift(SUPER_ADMIN_USER);
-          setDoc(doc(db, 'users', SUPER_ADMIN_USER.id), SUPER_ADMIN_USER).catch(console.error);
+          setDoc(doc(db, 'users', SUPER_ADMIN_USER.id), sanitizeForFirestore(SUPER_ADMIN_USER)).catch(console.error);
         }
 
         // Sync Current User state
@@ -270,7 +387,28 @@ class CrmStore {
         this.notify();
       });
 
-      // 2. Listen to Campaigns Collection
+      // 2. Listen to Audit Logs Collection
+      onSnapshot(collection(db, 'auditLogs'), (snapshot) => {
+        const remoteAudit: AuditLog[] = [];
+        snapshot.forEach((docSnap) => {
+          remoteAudit.push(docSnap.data() as AuditLog);
+        });
+
+        if (remoteAudit.length > 0) {
+          remoteAudit.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          this.auditLogs = remoteAudit.slice(0, 500);
+          try {
+            localStorage.setItem(AUDIT_LOGS_KEY, JSON.stringify(this.auditLogs));
+          } catch (e) {
+            console.warn('Local storage audit log size limit:', e);
+          }
+          this.notify();
+        }
+      }, (err) => {
+        console.warn('Firestore AuditLogs listener warning:', err);
+      });
+
+      // 3. Listen to Campaigns Collection
       onSnapshot(collection(db, 'campaigns'), (snapshot) => {
         const remoteCampaigns: Campaign[] = [];
         snapshot.forEach((docSnap) => {
@@ -281,7 +419,7 @@ class CrmStore {
           this.campaigns = remoteCampaigns;
         } else if (this.campaigns.length > 0) {
           // Push local campaigns if remote is empty
-          this.campaigns.forEach(c => setDoc(doc(db, 'campaigns', c.id), c, { merge: true }).catch(console.error));
+          this.campaigns.forEach(c => setDoc(doc(db, 'campaigns', c.id), sanitizeForFirestore(c), { merge: true }).catch(console.error));
         }
 
         this.saveToStorage();
@@ -352,7 +490,7 @@ class CrmStore {
           }
 
           if (!matchesRemote) {
-            setDoc(doc(db, 'leads', localLead.id), localLead, { merge: true }).catch(console.error);
+            setDoc(doc(db, 'leads', localLead.id), sanitizeForFirestore(localLead), { merge: true }).catch(console.error);
             this.notifyWebhook(localLead);
             uniqueRemoteMap.set(localLead.id, localLead);
             mergedNewLocal++;
@@ -494,6 +632,15 @@ class CrmStore {
     return this.currentUser;
   }
 
+  public async checkUserStatus(userId: string): Promise<User | null> {
+    const user = this.users.find(u => u.id === userId);
+    if (user && this.currentUser && this.currentUser.id === user.id) {
+      this.currentUser = { ...user };
+      this.saveToStorage();
+    }
+    return user || null;
+  }
+
   public async loginWithGoogle(): Promise<{ success: boolean; message: string; user?: User }> {
     try {
       const googleUser = await firebaseLoginWithGoogle();
@@ -513,27 +660,42 @@ class CrmStore {
           name: googleUser.displayName || cleanEmail.split('@')[0],
           role: isSuper ? 'admin' : 'vendedor',
           status: isSuper ? 'approved' : 'pending',
+          assignedSellerName: null,
           createdAt: new Date().toISOString(),
           phone: googleUser.phoneNumber || ''
         };
         this.users.unshift(user);
-        await setDoc(doc(db, 'users', user.id), user);
+        await setDoc(doc(db, 'users', user.id), sanitizeForFirestore(user));
       } else {
         if (googleUser.displayName && user.name !== googleUser.displayName) {
           user.name = googleUser.displayName;
-          await setDoc(doc(db, 'users', user.id), { name: googleUser.displayName }, { merge: true });
+          await setDoc(doc(db, 'users', user.id), sanitizeForFirestore({ name: googleUser.displayName }), { merge: true });
         }
       }
 
       if (user.status === 'pending') {
+        this.currentUser = user;
+        this.saveToStorage();
+        this.addAuditLog({
+          category: 'auth',
+          action: 'LOGIN_PENDIENTE',
+          description: `El usuario ${user.name} (${user.email}) inició sesión con Google pero se encuentra pendiente de asignación por el Administrador`,
+          user
+        });
         return {
-          success: false,
-          message: 'Tu cuenta con Google se registró con éxito. Un Administrador debe aprobar tu solicitud antes de ingresar.',
+          success: true,
+          message: 'Tu cuenta de Google fue registrada. Esperando asignación de vendedor por el Administrador.',
           user
         };
       }
 
       if (user.status === 'rejected' || user.status === 'suspended') {
+        this.addAuditLog({
+          category: 'auth',
+          action: 'LOGIN_BLOQUEADO',
+          description: `Intento de acceso bloqueado para ${user.name} (${user.email}) - Estado: ${user.status}`,
+          user
+        });
         return {
           success: false,
           message: 'Tu cuenta ha sido suspendida o denegada por la administración.'
@@ -542,6 +704,14 @@ class CrmStore {
 
       this.currentUser = user;
       this.saveToStorage();
+
+      this.addAuditLog({
+        category: 'auth',
+        action: 'INICIO_SESION',
+        description: `Inicio de sesión exitoso con Google: ${user.name} (${user.email}) - Perfil: ${user.assignedSellerName || user.role}`,
+        user
+      });
+
       return { success: true, message: 'Ingreso exitoso con Google', user };
     } catch (error: any) {
       console.error('Error logging in with Google:', error);
@@ -564,22 +734,37 @@ class CrmStore {
         name: isSuper ? 'Matías Gil (Super Admin)' : cleanEmail.split('@')[0],
         role: isSuper ? 'admin' : 'vendedor',
         status: isSuper ? 'approved' : 'pending',
+        assignedSellerName: null,
         createdAt: new Date().toISOString()
       };
       this.users.push(user);
-      setDoc(doc(db, 'users', user.id), user).catch(console.error);
+      setDoc(doc(db, 'users', user.id), sanitizeForFirestore(user)).catch(console.error);
       this.saveToStorage();
     }
 
     if (user.status === 'pending') {
+      this.currentUser = user;
+      this.saveToStorage();
+      this.addAuditLog({
+        category: 'auth',
+        action: 'LOGIN_PENDIENTE',
+        description: `Acceso por email para ${user.email} - En espera de asignación de vendedor`,
+        user
+      });
       return {
-        success: false,
-        message: 'Tu cuenta está en revisión. Un Administrador debe aprobar tu acceso antes de ingresar.',
+        success: true,
+        message: 'Tu cuenta está en revisión. Un Administrador debe asignarte tu perfil de vendedor.',
         user
       };
     }
 
     if (user.status === 'rejected' || user.status === 'suspended') {
+      this.addAuditLog({
+        category: 'auth',
+        action: 'LOGIN_BLOQUEADO',
+        description: `Acceso denegado/bloqueado por email para ${user.email}`,
+        user
+      });
       return {
         success: false,
         message: 'Acceso denegado o suspendido. Contacta con la administración.'
@@ -588,10 +773,25 @@ class CrmStore {
 
     this.currentUser = user;
     this.saveToStorage();
+
+    this.addAuditLog({
+      category: 'auth',
+      action: 'INICIO_SESION',
+      description: `Inicio de sesión exitoso por email: ${user.name} (${user.email})`,
+      user
+    });
+
     return { success: true, message: 'Ingreso exitoso', user };
   }
 
   public async logout() {
+    if (this.currentUser) {
+      this.addAuditLog({
+        category: 'auth',
+        action: 'CIERRE_SESION',
+        description: `Cierre de sesión de ${this.currentUser.name} (${this.currentUser.email})`
+      });
+    }
     this.currentUser = null;
     await logoutFirebase();
     this.saveToStorage();
@@ -602,7 +802,14 @@ class CrmStore {
     return [...this.users];
   }
 
-  public async addUser(name: string, email: string, phone: string, role: User['role'], status: User['status']): Promise<User> {
+  public async addUser(
+    name: string, 
+    email: string, 
+    phone: string, 
+    role: User['role'], 
+    status: User['status'],
+    assignedSellerName?: string | null
+  ): Promise<User> {
     const newUser: User = {
       id: 'usr-' + Date.now(),
       name: name.trim(),
@@ -610,18 +817,39 @@ class CrmStore {
       phone: phone.trim(),
       role,
       status,
+      assignedSellerName: assignedSellerName ? assignedSellerName.trim() : null,
       createdAt: new Date().toISOString()
     };
     this.users.push(newUser);
     this.saveToStorage();
 
-    await setDoc(doc(db, 'users', newUser.id), newUser);
+    await setDoc(doc(db, 'users', newUser.id), sanitizeForFirestore(newUser));
+
+    this.addAuditLog({
+      category: 'users',
+      action: 'CREAR_USUARIO',
+      description: `Nuevo usuario/vendedor registrado: ${newUser.name} (${newUser.email}) - Rol: ${newUser.role}, Estado: ${newUser.status}${newUser.assignedSellerName ? `, Vendedor: ${newUser.assignedSellerName}` : ''}`,
+      details: JSON.stringify({ userId: newUser.id, role: newUser.role, status: newUser.status, assignedSellerName: newUser.assignedSellerName })
+    });
+
     return newUser;
   }
 
-  public async updateUser(userId: string, data: { name?: string; email?: string; phone?: string; role?: User['role']; status?: User['status'] }) {
+  public async updateUser(
+    userId: string, 
+    data: { 
+      name?: string; 
+      email?: string; 
+      phone?: string; 
+      role?: User['role']; 
+      status?: User['status'];
+      assignedSellerName?: string | null;
+    }
+  ) {
     const target = this.users.find(u => u.id === userId);
     if (!target) return;
+
+    const previousData = { ...target };
 
     if (target.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
       target.role = 'admin';
@@ -634,10 +862,39 @@ class CrmStore {
       if (data.phone !== undefined) target.phone = data.phone.trim();
       if (data.role !== undefined) target.role = data.role;
       if (data.status !== undefined) target.status = data.status;
+      if (data.assignedSellerName !== undefined) {
+        target.assignedSellerName = data.assignedSellerName ? data.assignedSellerName.trim() : null;
+      }
     }
     this.saveToStorage();
 
-    await setDoc(doc(db, 'users', target.id), target, { merge: true });
+    await setDoc(doc(db, 'users', target.id), sanitizeForFirestore(target), { merge: true });
+
+    this.addAuditLog({
+      category: 'users',
+      action: 'EDITAR_USUARIO',
+      description: `Usuario modificado: ${target.name} (${target.email}) - Estado: ${target.status}, Rol: ${target.role}${target.assignedSellerName ? `, Identidad Vendedor: "${target.assignedSellerName}"` : ''}`,
+      details: JSON.stringify({ userId: target.id, changes: data, previous: previousData })
+    });
+  }
+
+  public async assignUserSellerProfile(userId: string, sellerName: string | null, status: User['status'] = 'approved', role: User['role'] = 'vendedor') {
+    const target = this.users.find(u => u.id === userId);
+    if (!target) return;
+
+    target.assignedSellerName = sellerName ? sellerName.trim() : null;
+    target.status = status;
+    target.role = role;
+
+    this.saveToStorage();
+    await setDoc(doc(db, 'users', target.id), sanitizeForFirestore(target), { merge: true });
+
+    this.addAuditLog({
+      category: 'users',
+      action: 'ASIGNAR_IDENTIDAD_VENDEDOR',
+      description: `El Super Admin asignó el perfil de vendedor "${sellerName || 'General'}" al usuario ${target.name} (${target.email}) y activó su estado a "${status}"`,
+      details: JSON.stringify({ userId: target.id, sellerName, status, role })
+    });
   }
 
   public async deleteUser(userId: string): Promise<boolean> {
@@ -648,11 +905,19 @@ class CrmStore {
       return false;
     }
 
-    const removedId = this.users[targetIndex].id;
+    const removedUser = this.users[targetIndex];
     this.users.splice(targetIndex, 1);
     this.saveToStorage();
 
-    await deleteDoc(doc(db, 'users', removedId));
+    await deleteDoc(doc(db, 'users', removedUser.id));
+
+    this.addAuditLog({
+      category: 'users',
+      action: 'ELIMINAR_USUARIO',
+      description: `Usuario eliminado del sistema: ${removedUser.name} (${removedUser.email})`,
+      details: JSON.stringify({ userId: removedUser.id, email: removedUser.email })
+    });
+
     return true;
   }
 
@@ -677,7 +942,15 @@ class CrmStore {
     this.campaigns.unshift(newCamp);
     this.saveToStorage();
 
-    await setDoc(doc(db, 'campaigns', newCamp.id), newCamp);
+    await setDoc(doc(db, 'campaigns', newCamp.id), sanitizeForFirestore(newCamp));
+
+    this.addAuditLog({
+      category: 'campaigns',
+      action: 'CREAR_CAMPANA',
+      description: `Nueva campaña creada: "${newCamp.nombre}"`,
+      details: JSON.stringify({ id: newCamp.id, descripcion: newCamp.descripcion })
+    });
+
     return newCamp;
   }
 
@@ -685,23 +958,39 @@ class CrmStore {
     const target = this.campaigns.find(c => c.id === campaignId);
     if (!target) return;
 
+    const oldName = target.nombre;
     target.nombre = nombre.trim();
     target.descripcion = descripcion.trim();
     target.scriptTemplate = scriptTemplate.trim();
 
     this.saveToStorage();
-    await setDoc(doc(db, 'campaigns', target.id), target, { merge: true });
+    await setDoc(doc(db, 'campaigns', target.id), sanitizeForFirestore(target), { merge: true });
+
+    this.addAuditLog({
+      category: 'campaigns',
+      action: 'EDITAR_CAMPANA',
+      description: `Campaña "${oldName}" actualizada a "${target.nombre}"`,
+      details: JSON.stringify({ id: target.id, nombre: target.nombre, descripcion: target.descripcion })
+    });
   }
 
   public async deleteCampaign(campaignId: string): Promise<boolean> {
     const targetIdx = this.campaigns.findIndex(c => c.id === campaignId);
     if (targetIdx === -1) return false;
 
-    const removedId = this.campaigns[targetIdx].id;
+    const removed = this.campaigns[targetIdx];
     this.campaigns.splice(targetIdx, 1);
     this.saveToStorage();
 
-    await deleteDoc(doc(db, 'campaigns', removedId));
+    await deleteDoc(doc(db, 'campaigns', removed.id));
+
+    this.addAuditLog({
+      category: 'campaigns',
+      action: 'ELIMINAR_CAMPANA',
+      description: `Campaña eliminada: "${removed.nombre}"`,
+      details: JSON.stringify({ id: removed.id, nombre: removed.nombre })
+    });
+
     return true;
   }
 
@@ -709,11 +998,19 @@ class CrmStore {
     const targetIdx = this.leads.findIndex(l => l.id === leadId);
     if (targetIdx === -1) return false;
 
-    const removedId = this.leads[targetIdx].id;
+    const removed = this.leads[targetIdx];
     this.leads.splice(targetIdx, 1);
     this.saveToStorage();
 
-    await deleteDoc(doc(db, 'leads', removedId));
+    await deleteDoc(doc(db, 'leads', removed.id));
+
+    this.addAuditLog({
+      category: 'leads',
+      action: 'ELIMINAR_LEAD',
+      description: `Lead eliminado: ${removed.nombre} ${removed.apellido} (Tel: ${removed.telefono}, DNI: ${removed.dni})`,
+      details: JSON.stringify({ leadId: removed.id, nombre: removed.nombre, apellido: removed.apellido })
+    });
+
     return true;
   }
 
@@ -736,6 +1033,14 @@ class CrmStore {
     } catch (err) {
       console.error('Error deleting leads batch from Firestore:', err);
     }
+
+    this.addAuditLog({
+      category: 'leads',
+      action: 'ELIMINACION_MASIVA_LEADS',
+      description: `Se eliminaron masivamente ${leadIds.length} leads de la base de datos`,
+      details: JSON.stringify({ count: leadIds.length, leadIds: leadIds.slice(0, 10) })
+    });
+
     return true;
   }
 
@@ -760,8 +1065,17 @@ class CrmStore {
     });
 
     this.saveToStorage();
-    await setDoc(doc(db, 'leads', lead.id), lead, { merge: true });
+    await setDoc(doc(db, 'leads', lead.id), sanitizeForFirestore(lead), { merge: true });
     this.notifyWebhook(lead);
+
+    this.addAuditLog({
+      category: 'pool',
+      action: sellerId ? 'ASIGNAR_VENDEDOR_LEAD' : 'ENVIAR_POOL_GENERAL',
+      description: sellerId 
+        ? `Lead "${lead.nombre} ${lead.apellido}" asignado al vendedor "${sellerName}"`
+        : `Lead "${lead.nombre} ${lead.apellido}" enviado al Pool General`,
+      details: JSON.stringify({ leadId: lead.id, sellerId, sellerName })
+    });
   }
 
   public async updateLeadFields(
@@ -803,8 +1117,16 @@ class CrmStore {
     });
 
     this.saveToStorage();
-    await setDoc(doc(db, 'leads', lead.id), lead, { merge: true });
+    await setDoc(doc(db, 'leads', lead.id), sanitizeForFirestore(lead), { merge: true });
     this.notifyWebhook(lead);
+
+    this.addAuditLog({
+      category: 'leads',
+      action: 'EDITAR_LEAD',
+      description: `Datos actualizados del cliente "${lead.nombre} ${lead.apellido}"`,
+      details: JSON.stringify({ leadId: lead.id, updates })
+    });
+
     return true;
   }
 
@@ -825,8 +1147,15 @@ class CrmStore {
     });
 
     this.saveToStorage();
-    await setDoc(doc(db, 'leads', lead.id), lead, { merge: true });
+    await setDoc(doc(db, 'leads', lead.id), sanitizeForFirestore(lead), { merge: true });
     this.notifyWebhook(lead);
+
+    this.addAuditLog({
+      category: 'campaigns',
+      action: 'ASIGNAR_CAMPANA_LEAD',
+      description: `Lead "${lead.nombre} ${lead.apellido}" asignado a la campaña "${campaign.nombre}"`,
+      details: JSON.stringify({ leadId: lead.id, campaignId: campaign.id, campaignName: campaign.nombre })
+    });
   }
 
   public async claimLead(leadId: string, sellerUser?: User): Promise<boolean> {
@@ -847,8 +1176,16 @@ class CrmStore {
     });
 
     this.saveToStorage();
-    await setDoc(doc(db, 'leads', lead.id), lead, { merge: true });
+    await setDoc(doc(db, 'leads', lead.id), sanitizeForFirestore(lead), { merge: true });
     this.notifyWebhook(lead);
+
+    this.addAuditLog({
+      category: 'pool',
+      action: 'TOMAR_LEAD_POOL',
+      description: `El vendedor ${seller.name} tomó del Pool General al lead "${lead.nombre} ${lead.apellido}"`,
+      details: JSON.stringify({ leadId: lead.id, sellerId: seller.id, sellerName: seller.name })
+    });
+
     return true;
   }
 
@@ -869,24 +1206,39 @@ class CrmStore {
     });
 
     this.saveToStorage();
-    await setDoc(doc(db, 'leads', lead.id), lead, { merge: true });
+    await setDoc(doc(db, 'leads', lead.id), sanitizeForFirestore(lead), { merge: true });
     this.notifyWebhook(lead);
+
+    this.addAuditLog({
+      category: 'pool',
+      action: 'DEVOLVER_LEAD_POOL',
+      description: `Lead "${lead.nombre} ${lead.apellido}" liberado y retornado al Pool General (anterior: ${prevSeller})`,
+      details: JSON.stringify({ leadId: lead.id, prevSeller })
+    });
+
     return true;
   }
 
   public async syncAllToFirestoreAndSheets(): Promise<{ countLeads: number }> {
     let countLeads = 0;
     for (const lead of this.leads) {
-      await setDoc(doc(db, 'leads', lead.id), lead, { merge: true });
+      await setDoc(doc(db, 'leads', lead.id), sanitizeForFirestore(lead), { merge: true });
       this.notifyWebhook(lead);
       countLeads++;
     }
     for (const u of this.users) {
-      await setDoc(doc(db, 'users', u.id), u, { merge: true });
+      await setDoc(doc(db, 'users', u.id), sanitizeForFirestore(u), { merge: true });
     }
     for (const c of this.campaigns) {
-      await setDoc(doc(db, 'campaigns', c.id), c, { merge: true });
+      await setDoc(doc(db, 'campaigns', c.id), sanitizeForFirestore(c), { merge: true });
     }
+
+    this.addAuditLog({
+      category: 'system',
+      action: 'SINCRONIZACION_FORZADA',
+      description: `Sincronización manual forzada de ${countLeads} leads con Firestore y Google Sheets`
+    });
+
     return { countLeads };
   }
 
@@ -934,8 +1286,16 @@ class CrmStore {
     });
 
     this.saveToStorage();
-    await setDoc(doc(db, 'leads', lead.id), lead, { merge: true });
+    await setDoc(doc(db, 'leads', lead.id), sanitizeForFirestore(lead), { merge: true });
     this.notifyWebhook(lead);
+
+    this.addAuditLog({
+      category: 'leads',
+      action: 'CAMBIO_ESTADO_LEAD',
+      description: `Estado del lead "${lead.nombre} ${lead.apellido}" modificado: "${estadoAnterior}" ➔ "${nuevoEstado}"${nuevoEstado === 'caido' ? ` (Motivo: ${motivoCaida} - Obs: ${observacionRechazo})` : ''}`,
+      details: JSON.stringify({ leadId: lead.id, estadoAnterior, nuevoEstado, motivoCaida, observacionRechazo, notaContacto })
+    });
+
     return { success: true };
   }
 
@@ -967,7 +1327,7 @@ class CrmStore {
 
     // 2. Update consolidated master leads in Firestore
     for (const lead of uniqueLeads) {
-      setDoc(doc(db, 'leads', lead.id), lead, { merge: true }).catch(console.error);
+      setDoc(doc(db, 'leads', lead.id), sanitizeForFirestore(lead), { merge: true }).catch(console.error);
     }
 
     this.leads = uniqueLeads;
@@ -979,6 +1339,16 @@ class CrmStore {
         ? `Depuración completada: Se eliminaron y fusionaron ${duplicateIdsToDelete.length} duplicados en la base de datos`
         : 'Verificación de duplicados: La base de datos se encuentra 100% limpia y sin duplicados'
     });
+
+    this.addAuditLog({
+      category: 'system',
+      action: 'DEPURACION_DUPLICADOS',
+      description: duplicateIdsToDelete.length > 0 
+        ? `Depuración de duplicados: se eliminaron y consolidaron ${duplicateIdsToDelete.length} registros duplicados`
+        : 'Verificación de duplicados: base de datos verificada sin duplicados',
+      details: JSON.stringify({ purgedCount: duplicateIdsToDelete.length, remaining: uniqueLeads.length })
+    });
+
     this.notify();
 
     return {
@@ -1106,7 +1476,7 @@ class CrmStore {
         const chunk = leadsToSaveFirestore.slice(i, i + batchSize);
         chunk.forEach(leadItem => {
           const ref = doc(db, 'leads', leadItem.id);
-          batch.set(ref, leadItem, { merge: true });
+          batch.set(ref, sanitizeForFirestore(leadItem), { merge: true });
         });
         await batch.commit();
       }
@@ -1118,6 +1488,13 @@ class CrmStore {
       type: 'firestore',
       status: 'success',
       message: `Importación completada: ${newCount} nuevos leads creados, ${updatedCount} existentes actualizados (0 duplicados)`
+    });
+
+    this.addAuditLog({
+      category: 'leads',
+      action: 'IMPORTAR_EXCEL',
+      description: `Importación de Excel a campaña "${campaignName}": ${newCount} leads nuevos, ${updatedCount} actualizados`,
+      details: JSON.stringify({ campanaId, campaignName, newCount, updatedCount, totalProcessed: leadsData.length })
     });
 
     return { 

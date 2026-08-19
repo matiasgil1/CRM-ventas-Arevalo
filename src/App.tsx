@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { User, Lead, Campaign } from './types/crm';
+import { User, Lead, Campaign, AuditLog, SUPER_ADMIN_EMAIL } from './types/crm';
 import { crmStore } from './services/crmStore';
 
 // Components
 import { Sidebar } from './components/Sidebar';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { AuthScreen } from './components/AuthScreen';
+import { PendingAuthorizationScreen } from './components/PendingAuthorizationScreen';
 import { LeadTableModule } from './components/LeadTableModule';
 import { KanbanModule } from './components/KanbanModule';
 import { PoolModule } from './components/PoolModule';
@@ -13,6 +14,7 @@ import { ImportModule } from './components/ImportModule';
 import { CampaignManagementModule } from './components/CampaignManagementModule';
 import { DashboardModule } from './components/DashboardModule';
 import { AccessManagementModule } from './components/AccessManagementModule';
+import { AuditModule } from './components/AuditModule';
 import { LeadDetailModal } from './components/LeadDetailModal';
 import { RejectionModal } from './components/RejectionModal';
 
@@ -23,6 +25,7 @@ export default function App() {
   const [leads, setLeads] = useState<Lead[]>(crmStore.getLeads());
   const [campaigns, setCampaigns] = useState<Campaign[]>(crmStore.getCampaigns());
   const [users, setUsers] = useState<User[]>(crmStore.getUsers());
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(crmStore.getAuditLogs());
 
   // Modals
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -35,6 +38,7 @@ export default function App() {
       setLeads(crmStore.getLeads());
       setCampaigns(crmStore.getCampaigns());
       setUsers(crmStore.getUsers());
+      setAuditLogs(crmStore.getAuditLogs());
     });
     return unsubscribe;
   }, []);
@@ -49,6 +53,29 @@ export default function App() {
 
   if (!currentUser) {
     return <AuthScreen onLoginSuccess={() => setCurrentUser(crmStore.getCurrentUser())} />;
+  }
+
+  // Check if seller user is pending assignment or approval
+  const isSuperAdmin = currentUser.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+  const isPendingSeller = !isSuperAdmin && currentUser.role !== 'admin' && (
+    currentUser.status === 'pending' || 
+    currentUser.status === 'rejected' || 
+    currentUser.status === 'suspended' ||
+    !currentUser.assignedSellerName
+  );
+
+  if (isPendingSeller) {
+    return (
+      <PendingAuthorizationScreen
+        user={currentUser}
+        onRefresh={() => {
+          crmStore.checkUserStatus(currentUser.id).then(updated => {
+            if (updated) setCurrentUser(updated);
+          });
+        }}
+        onLogout={() => crmStore.logout()}
+      />
+    );
   }
 
   const unassignedCount = leads.filter(l => l.vendedorId === null).length;
@@ -142,6 +169,15 @@ export default function App() {
           {activeTab === 'users' && currentUser.role === 'admin' && (
             <AccessManagementModule
               currentUser={currentUser}
+              users={users}
+              leads={leads}
+            />
+          )}
+
+          {activeTab === 'auditoria' && currentUser.role === 'admin' && (
+            <AuditModule
+              currentUser={currentUser}
+              auditLogs={auditLogs}
               users={users}
             />
           )}

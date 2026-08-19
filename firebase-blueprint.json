@@ -11,9 +11,28 @@
         "phone": { "type": "string" },
         "role": { "type": "string", "enum": ["admin", "vendedor"] },
         "status": { "type": "string", "enum": ["approved", "pending", "rejected", "suspended"] },
+        "assignedSellerName": { "type": ["string", "null"] },
         "createdAt": { "type": "string" }
       },
       "required": ["id", "name", "email", "role", "status"]
+    },
+    "auditLogs": {
+      "title": "Audit Logs",
+      "description": "Audit trail of user access and actions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "userName": { "type": "string" },
+        "userRole": { "type": "string" },
+        "category": { "type": "string", "enum": ["auth", "leads", "pool", "campaigns", "users", "export", "system"] },
+        "action": { "type": "string" },
+        "description": { "type": "string" },
+        "details": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "userId", "userEmail", "category", "action", "description"]
     },
     "campaigns": {
       "title": "Campaigns",

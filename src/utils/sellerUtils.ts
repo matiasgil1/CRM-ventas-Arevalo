@@ -15,15 +15,35 @@ export function normalizeString(str: string): string {
 /**
  * Determines whether a lead is assigned to a specific user/seller.
  * Admins have permission to see all leads.
- * Regular sellers can ONLY see leads assigned to their user ID, email, or name.
+ * Regular sellers can ONLY see leads assigned to their user ID, email, assignedSellerName, or name.
+ * If user is not approved, they have NO access to any leads.
  */
 export function isLeadAssignedToUser(lead: Lead, user: User | null): boolean {
   if (!user) return false;
+  if (user.status !== 'approved') return false;
   if (user.role === 'admin') return true;
 
   // Direct match by ID
   if (lead.vendedorId && lead.vendedorId === user.id) {
     return true;
+  }
+
+  // Check Admin-assigned Seller Entity / Profile name
+  if (user.assignedSellerName && lead.vendedorNombre) {
+    const assignedNorm = normalizeString(user.assignedSellerName);
+    const leadVendedorNorm = normalizeString(lead.vendedorNombre);
+    if (assignedNorm === leadVendedorNorm) {
+      return true;
+    }
+    // Partial word token match with assigned seller name
+    const assignedWords = assignedNorm.split(/\s+/).filter(w => w.length > 2);
+    const leadWords = leadVendedorNorm.split(/\s+/).filter(w => w.length > 2);
+    if (assignedWords.length > 0 && leadWords.length > 0) {
+      const matchCount = assignedWords.filter(w => leadWords.includes(w)).length;
+      if (matchCount >= 2 || (assignedWords.length === 1 && matchCount === 1 && leadWords.length === 1)) {
+        return true;
+      }
+    }
   }
 
   // Loose match by name or email in case vendedorId wasn't set yet during batch import
@@ -63,16 +83,23 @@ export function findMatchingSeller(vendedorRaw: string | undefined | null, users
   if (!rawNorm) return null;
 
   // Active or approved users preferred
-  const availableUsers = users.filter(u => u.status !== 'rejected' && u.status !== 'suspended');
+  const availableUsers = users.filter(u => u.status === 'approved');
 
-  // 1. Exact match by name (normalized)
+  // 1. Direct match by assignedSellerName (if admin linked this seller)
+  for (const user of availableUsers) {
+    if (user.assignedSellerName && normalizeString(user.assignedSellerName) === rawNorm) {
+      return user;
+    }
+  }
+
+  // 2. Exact match by name (normalized)
   for (const user of availableUsers) {
     if (normalizeString(user.name) === rawNorm) {
       return user;
     }
   }
 
-  // 2. Exact match by email or email prefix (e.g., carlos@arevalo -> carlos)
+  // 3. Exact match by email or email prefix (e.g., carlos@arevalo -> carlos)
   for (const user of availableUsers) {
     const userEmail = user.email.toLowerCase();
     const emailPrefix = userEmail.split('@')[0];
@@ -81,26 +108,30 @@ export function findMatchingSeller(vendedorRaw: string | undefined | null, users
     }
   }
 
-  // 3. Word token matching
+  // 4. Word token matching
   const rawWords = rawNorm.split(/\s+/).filter(w => w.length > 1);
 
   let bestMatch: User | null = null;
   let maxMatchedWords = 0;
 
   for (const user of availableUsers) {
-    const userNorm = normalizeString(user.name);
-    const userWords = userNorm.split(/\s+/).filter(w => w.length > 1);
+    const targetNames = [user.name, user.assignedSellerName].filter(Boolean) as string[];
+    
+    for (const nameToTest of targetNames) {
+      const userNorm = normalizeString(nameToTest);
+      const userWords = userNorm.split(/\s+/).filter(w => w.length > 1);
 
-    let matchedWords = 0;
-    for (const rw of rawWords) {
-      if (userWords.some(uw => uw === rw || (rw.length >= 4 && (uw.startsWith(rw) || rw.startsWith(uw))))) {
-        matchedWords++;
+      let matchedWords = 0;
+      for (const rw of rawWords) {
+        if (userWords.some(uw => uw === rw || (rw.length >= 4 && (uw.startsWith(rw) || rw.startsWith(uw))))) {
+          matchedWords++;
+        }
       }
-    }
 
-    if (matchedWords > maxMatchedWords) {
-      maxMatchedWords = matchedWords;
-      bestMatch = user;
+      if (matchedWords > maxMatchedWords) {
+        maxMatchedWords = matchedWords;
+        bestMatch = user;
+      }
     }
   }
 

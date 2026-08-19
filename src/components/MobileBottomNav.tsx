@@ -1,6 +1,6 @@
 import React from 'react';
 import { User } from '../types/crm';
-import { Table, LayoutGrid, Layers, FileUp, BarChart3, Users, Megaphone } from 'lucide-react';
+import { Table, LayoutGrid, Layers, FileUp, BarChart3, Users, Megaphone, Shield } from 'lucide-react';
 
 interface MobileBottomNavProps {
   user: User;
@@ -122,6 +122,21 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         >
           <Users className="w-5 h-5 mb-0.5" />
           <span className="text-[10px]">Accesos</span>
+        </button>
+      )}
+
+      {/* Tab 8: Auditoría (Admin) */}
+      {isAdmin && (
+        <button
+          onClick={() => setActiveTab('auditoria')}
+          className={`flex flex-col items-center justify-center shrink-0 min-w-[56px] h-12 px-2 rounded-xl transition-all ${
+            activeTab === 'auditoria'
+              ? 'text-[#40C4C0] bg-[#F0FDFD] font-extrabold shadow-2xs'
+              : 'text-[#718096] font-medium hover:text-[#2D3748]'
+          }`}
+        >
+          <Shield className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px]">Auditoría</span>
         </button>
       )}
     </div>

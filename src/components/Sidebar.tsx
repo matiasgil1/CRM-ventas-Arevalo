@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { User } from '../types/crm';
+import { User, SUPER_ADMIN_EMAIL } from '../types/crm';
 import { ArevaloLogo } from './ArevaloLogo';
 import { 
   LayoutGrid, Table, Layers, FileUp, BarChart3, Megaphone,
-  Users, LogOut, Menu, X
+  Users, LogOut, Menu, X, Shield
 } from 'lucide-react';
 import { crmStore } from '../services/crmStore';
 
@@ -24,7 +24,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const isAdmin = user.role === 'admin';
-  const isSuperAdmin = user.email.toLowerCase() === 'matiasgil20142015@gmail.com';
+  const isSuperAdmin = user.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
 
   const navItems = [
     {
@@ -68,6 +68,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         id: 'users',
         label: 'Acceso Usuarios',
         icon: Users,
+        badge: null
+      },
+      {
+        id: 'auditoria',
+        label: 'Auditoría',
+        icon: Shield,
         badge: null
       }
     ] : [])
