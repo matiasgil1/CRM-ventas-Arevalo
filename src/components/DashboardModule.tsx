@@ -7,9 +7,11 @@ import {
   PieChart, Pie, Legend 
 } from 'recharts';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { 
   BarChart3, TrendingUp, Users, CheckCircle2, XCircle, 
-  Download, Filter, Award, Target, FileSpreadsheet, Percent, User as UserIcon, Sparkles, MessageCircle
+  Download, Filter, Award, Target, FileSpreadsheet, Percent, User as UserIcon, Sparkles, MessageCircle, FileText
 } from 'lucide-react';
 
 interface DashboardModuleProps {
@@ -136,6 +138,233 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
     XLSX.writeFile(workbook, `Auditoria_Vendedores_Arevalo_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
+  // Export Executive PDF Summary of KPIs
+  const handleExportPDFSummary = () => {
+    try {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      
+      const sellerDisplayName = currentUser.assignedSellerName || currentUser.name;
+      const campaignName = selectedCampaign === 'all' 
+        ? 'Todas las Campañas' 
+        : (campaigns.find(c => c.id === selectedCampaign)?.nombre || selectedCampaign);
+
+      // Header Banner (#2D3748)
+      doc.setFillColor(45, 55, 72);
+      doc.rect(0, 0, pageWidth, 28, 'F');
+
+      // Accent Teal Line (#40C4C0)
+      doc.setFillColor(64, 196, 192);
+      doc.rect(0, 28, pageWidth, 2, 'F');
+
+      // Header Brand
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(64, 196, 192);
+      doc.text('ARÉVALO SERVICIOS SOCIALES', 14, 12);
+
+      doc.setFontSize(10);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'normal');
+      doc.text(
+        isAdmin ? 'REPORTE EJECUTIVO DE KPIS Y GESTIÓN COMERCIAL' : 'RESUMEN INDIVIDUAL DE RENDIMIENTO Y KPIS',
+        14, 
+        19
+      );
+
+      doc.setFontSize(8);
+      doc.setTextColor(203, 213, 225);
+      doc.text(`Fecha de Emisión: ${new Date().toLocaleString('es-AR')}`, 14, 24);
+
+      // Seller / Campaign Metadata Box
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(14, 34, pageWidth - 28, 23, 2, 2, 'FD');
+
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(45, 55, 72);
+      doc.text(`Vendedor / Usuario:`, 18, 41);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${currentUser.name} (${sellerDisplayName}) • ${currentUser.email}`, 56, 41);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Campaña Filtrada:`, 18, 47);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${campaignName}`, 56, 47);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Total Leads Evaluados:`, 18, 53);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${totalLeads} registros en cartera`, 56, 53);
+
+      let currentY = 62;
+
+      // Section 1: KPI Summary Matrix
+      autoTable(doc, {
+        startY: currentY,
+        head: [['Métrica Clave', 'Valor', 'Efectividad / Proporción']],
+        body: [
+          ['Tasa de Conversión General', `${conversionRate}%`, `${cerradosCount} ventas de ${totalLeads} clientes`],
+          ['Ventas Concretadas (Cerrados)', `${cerradosCount}`, `${totalLeads > 0 ? ((cerradosCount / totalLeads) * 100).toFixed(1) : 0}% de la cartera`],
+          ['En Gestión Activa (Contactados / Negociación)', `${enGestionCount}`, `${totalLeads > 0 ? ((enGestionCount / totalLeads) * 100).toFixed(1) : 0}% en proceso activo`],
+          ['Clientes Pendientes de Contacto', `${pendientesCount}`, `${totalLeads > 0 ? ((pendientesCount / totalLeads) * 100).toFixed(1) : 0}% sin iniciar`],
+          ['Leads Descartados (Caídos)', `${caidosCount}`, `${totalLeads > 0 ? ((caidosCount / totalLeads) * 100).toFixed(1) : 0}% del total`],
+        ],
+        theme: 'striped',
+        headStyles: {
+          fillColor: [64, 196, 192],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 9
+        },
+        bodyStyles: {
+          fontSize: 8.5,
+          textColor: [45, 55, 72]
+        },
+        columnStyles: {
+          0: { fontStyle: 'bold', cellWidth: 75 },
+          1: { halign: 'center', fontStyle: 'bold', cellWidth: 35 },
+          2: { halign: 'left' }
+        },
+        margin: { left: 14, right: 14 }
+      });
+
+      currentY = (doc as any).lastAutoTable.finalY + 8;
+
+      // Section 2: Distribution by Status
+      const statusRows = statusChartData.map(s => [
+        s.name,
+        s.cant.toString(),
+        totalLeads > 0 ? `${((s.cant / totalLeads) * 100).toFixed(1)}%` : '0%'
+      ]);
+
+      autoTable(doc, {
+        startY: currentY,
+        head: [['Estado del Lead', 'Cantidad', 'Porcentaje']],
+        body: statusRows,
+        theme: 'grid',
+        headStyles: {
+          fillColor: [45, 55, 72],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 8.5
+        },
+        bodyStyles: {
+          fontSize: 8,
+          textColor: [45, 55, 72]
+        },
+        columnStyles: {
+          0: { fontStyle: 'bold', cellWidth: 90 },
+          1: { halign: 'center', cellWidth: 40 },
+          2: { halign: 'center', cellWidth: 40 }
+        },
+        margin: { left: 14, right: 14 }
+      });
+
+      currentY = (doc as any).lastAutoTable.finalY + 8;
+
+      // Section 3: Rejection Reasons (if any)
+      if (rejectionChartData.length > 0) {
+        const totalCaidos = caidosCount || 1;
+        const rejectionRows = rejectionChartData.map(r => [
+          r.name,
+          r.value.toString(),
+          `${((r.value / totalCaidos) * 100).toFixed(1)}%`
+        ]);
+
+        autoTable(doc, {
+          startY: currentY,
+          head: [['Motivo de Descarte / Baja', 'Cantidad', '% del Total Caídos']],
+          body: rejectionRows,
+          theme: 'grid',
+          headStyles: {
+            fillColor: [225, 29, 72],
+            textColor: [255, 255, 255],
+            fontStyle: 'bold',
+            fontSize: 8.5
+          },
+          bodyStyles: {
+            fontSize: 8,
+            textColor: [45, 55, 72]
+          },
+          columnStyles: {
+            0: { fontStyle: 'bold', cellWidth: 90 },
+            1: { halign: 'center', cellWidth: 40 },
+            2: { halign: 'center', cellWidth: 40 }
+          },
+          margin: { left: 14, right: 14 }
+        });
+
+        currentY = (doc as any).lastAutoTable.finalY + 8;
+      }
+
+      // Section 4: If Admin, include seller comparison ranking table
+      if (isAdmin && sellerStats.length > 0) {
+        if (currentY > pageHeight - 60) {
+          doc.addPage();
+          currentY = 20;
+        }
+
+        const sellerRows = sellerStats.map(s => [
+          s.nombre,
+          s.total.toString(),
+          s.enGestion.toString(),
+          s.cerrados.toString(),
+          s.caidos.toString(),
+          `${s.rate}%`
+        ]);
+
+        autoTable(doc, {
+          startY: currentY,
+          head: [['Vendedor', 'Asignados', 'En Gestión', 'Ventas', 'Caídos', 'Conversión']],
+          body: sellerRows,
+          theme: 'striped',
+          headStyles: {
+            fillColor: [30, 41, 59],
+            textColor: [255, 255, 255],
+            fontStyle: 'bold',
+            fontSize: 8.5
+          },
+          bodyStyles: {
+            fontSize: 8,
+            textColor: [45, 55, 72]
+          },
+          columnStyles: {
+            0: { fontStyle: 'bold' },
+            1: { halign: 'center' },
+            2: { halign: 'center' },
+            3: { halign: 'center' },
+            4: { halign: 'center' },
+            5: { halign: 'right', fontStyle: 'bold' }
+          },
+          margin: { left: 14, right: 14 }
+        });
+      }
+
+      // Footer with page numbering
+      const totalPages = doc.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7.5);
+        doc.setTextColor(140, 150, 165);
+        doc.text(
+          `Arévalo Servicios Sociales CRM • Reporte Confidencial • Página ${i} de ${totalPages}`,
+          pageWidth / 2,
+          pageHeight - 8,
+          { align: 'center' }
+        );
+      }
+
+      const fileDate = new Date().toISOString().slice(0, 10);
+      const safeSeller = sellerDisplayName.replace(/\s+/g, '_');
+      doc.save(`Resumen_KPIs_${safeSeller}_${fileDate}.pdf`);
+    } catch (err) {
+      console.error('Error al generar PDF de resumen:', err);
+    }
+  };
+
   return (
     <div className="space-y-6 pb-16 md:pb-6">
       {/* Title & Toolbar */}
@@ -157,14 +386,14 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
           </div>
         </div>
 
-        {/* Campaign Filter & Export */}
+        {/* Campaign Filter & Export Actions */}
         <div className="flex flex-wrap items-center gap-2">
           <CustomSelect
             icon={Filter}
             variant="subtle"
             value={selectedCampaign}
             onChange={(e) => setSelectedCampaign(e.target.value)}
-            containerClassName="min-w-[200px]"
+            containerClassName="min-w-[190px]"
           >
             <option value="all">Todas las Campañas</option>
             {campaigns.map(c => (
@@ -173,8 +402,18 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
           </CustomSelect>
 
           <button
+            onClick={handleExportPDFSummary}
+            className="px-3.5 py-2 bg-white hover:bg-slate-50 text-[#2D3748] border border-[#E2E8F0] hover:border-[#40C4C0] font-bold rounded-xl text-xs shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-98"
+            title="Generar resumen ejecutivo de KPIs en formato PDF"
+          >
+            <FileText className="w-4 h-4 text-[#40C4C0]" />
+            <span>Exportar Resumen</span>
+          </button>
+
+          <button
             onClick={handleExportLeads}
             className="px-3.5 py-2 bg-[#40C4C0] hover:bg-[#32b2ae] text-white font-bold rounded-xl text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-98"
+            title="Exportar base completa a Excel (.xlsx)"
           >
             <Download className="w-4 h-4" />
             <span>{isAdmin ? 'Exportar Base' : 'Exportar Mis Leads'}</span>

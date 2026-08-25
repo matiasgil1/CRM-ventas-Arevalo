@@ -126,86 +126,89 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sidebar Container */}
       <aside className={`
-        fixed lg:static top-0 left-0 bottom-0 z-50
-        w-64 bg-white border-r border-[#E2E8F0] flex flex-col justify-between
+        fixed lg:sticky top-0 left-0 z-50
+        w-64 h-screen max-h-screen bg-white border-r border-[#E2E8F0]
+        flex flex-col justify-between shrink-0
         transition-transform duration-300 ease-in-out
         ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
-        <div className="flex flex-col h-full">
-          {/* Logo Section */}
-          <div className="p-6 border-b border-[#E2E8F0] flex items-center justify-between">
-            <ArevaloLogo size="md" />
-            <button 
-              onClick={() => setMobileOpen(false)}
-              className="lg:hidden text-slate-400 hover:text-slate-600"
-            >
-              <X className="w-5 h-5" />
-            </button>
+        {/* Top Logo Section */}
+        <div className="shrink-0 p-5 sm:p-6 border-b border-[#E2E8F0] flex items-center justify-between">
+          <ArevaloLogo size="md" />
+          <button 
+            onClick={() => setMobileOpen(false)}
+            className="lg:hidden text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Scrollable Navigation Links */}
+        <nav className="flex-1 px-4 py-4 space-y-1.5 overflow-y-auto min-h-0 overscroll-contain">
+          <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#718096] px-3 mb-2">
+            Navegación Principal
           </div>
 
-          {/* Navigation Links */}
-          <nav className="flex-1 px-4 py-4 space-y-1.5 overflow-y-auto">
-            <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#718096] px-3 mb-2">
-              Navegación Principal
-            </div>
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
 
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    setActiveTab(item.id);
-                    setMobileOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-between p-3 rounded-xl font-bold text-xs transition-all ${
-                    isActive
-                      ? 'bg-[#F0FDFD] text-[#40C4C0] border border-[#40C4C0]/30 shadow-2xs'
-                      : 'text-[#718096] hover:bg-[#F3F7F7] hover:text-[#2D3748]'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <Icon className={`w-5 h-5 ${isActive ? 'text-[#40C4C0]' : 'text-[#718096]'}`} />
-                    <span>{item.label}</span>
-                  </div>
-
-                  {item.badge !== null && (
-                    <span className="px-2 py-0.5 bg-[#40C4C0] text-white rounded-full text-[10px] font-extrabold">
-                      {item.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
-
-          {/* Bottom Actions & User Profile */}
-          <div className="p-4 border-t border-[#E2E8F0] space-y-3 bg-[#F3F7F7]/50">
-            <div className="flex items-center justify-between gap-3 bg-white p-3 rounded-xl border border-[#E2E8F0]">
-              <div className="flex items-center gap-2.5 overflow-hidden">
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-xs shrink-0 ${
-                  isAdmin ? 'bg-[#40C4C0]' : 'bg-emerald-600'
-                }`}>
-                  {user.name.charAt(0).toUpperCase()}
-                </div>
-                <div className="overflow-hidden">
-                  <p className="text-xs font-bold text-[#2D3748] truncate">{user.name}</p>
-                  <p className="text-[10px] text-[#718096] truncate">
-                    {isSuperAdmin ? 'Super Admin' : isAdmin ? 'Administrador' : 'Vendedor'}
-                  </p>
-                </div>
-              </div>
-
+            return (
               <button
-                onClick={onLogout}
-                title="Cerrar Sesión"
-                className="p-1.5 text-[#718096] hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                key={item.id}
+                onClick={() => {
+                  setActiveTab(item.id);
+                  setMobileOpen(false);
+                }}
+                className={`w-full flex items-center justify-between p-3 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+                  isActive
+                    ? 'bg-[#F0FDFD] text-[#40C4C0] border border-[#40C4C0]/30 shadow-2xs'
+                    : 'text-[#718096] hover:bg-[#F3F7F7] hover:text-[#2D3748]'
+                }`}
               >
-                <LogOut className="w-4 h-4" />
+                <div className="flex items-center gap-3">
+                  <Icon className={`w-5 h-5 ${isActive ? 'text-[#40C4C0]' : 'text-[#718096]'}`} />
+                  <span>{item.label}</span>
+                </div>
+
+                {item.badge !== null && (
+                  <span className="px-2 py-0.5 bg-[#40C4C0] text-white rounded-full text-[10px] font-extrabold">
+                    {item.badge}
+                  </span>
+                )}
               </button>
+            );
+          })}
+        </nav>
+
+        {/* Fixed Pinned User Account Footer */}
+        <div className="shrink-0 p-3.5 border-t border-[#E2E8F0] bg-[#F8FAFC]">
+          <div className="flex items-center justify-between gap-2.5 bg-white p-3 rounded-xl border border-[#E2E8F0] shadow-2xs">
+            <div className="flex items-center gap-2.5 overflow-hidden min-w-0">
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-xs ${
+                isAdmin ? 'bg-[#40C4C0]' : 'bg-[#00807D]'
+              }`}>
+                {user.name.charAt(0).toUpperCase()}
+              </div>
+              <div className="overflow-hidden min-w-0">
+                <p className="text-xs font-bold text-[#2D3748] truncate leading-tight">{user.name}</p>
+                <p className="text-[10px] text-[#718096] truncate font-medium mt-0.5">
+                  {isSuperAdmin 
+                    ? 'Super Admin' 
+                    : isAdmin 
+                      ? 'Administrador' 
+                      : (user.assignedSellerName || 'Vendedor')}
+                </p>
+              </div>
             </div>
+
+            <button
+              onClick={onLogout}
+              title="Cerrar Sesión"
+              className="p-2 text-[#718096] hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors shrink-0 cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </aside>
