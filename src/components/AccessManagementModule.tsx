@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { User, Lead, SUPER_ADMIN_EMAIL } from '../types/crm';
 import { crmStore } from '../services/crmStore';
+import { isLeadAssignedToUser } from '../utils/sellerUtils';
 import { ConfirmModal } from './ConfirmModal';
 import { CustomSelect } from './CustomSelect';
 import { 
   Users, Shield, Check, X, Ban, UserCheck, Clock, 
   UserPlus, Edit2, Trash2, Search, Loader2, Sparkles,
-  Link, UserMinus, AlertCircle, ArrowRight
+  Link, UserMinus, AlertCircle, ArrowRight, Mail, Phone, Calendar, Briefcase, CheckCircle2, TrendingUp
 } from 'lucide-react';
 
 interface AccessManagementModuleProps {
@@ -213,6 +214,111 @@ export const AccessManagementModule: React.FC<AccessManagementModuleProps> = ({
   const activeCount = users.filter(u => u.status === 'approved').length;
   const inactiveCount = users.filter(u => u.status === 'rejected' || u.status === 'suspended').length;
 
+  const isAdmin = currentUser.role === 'admin';
+
+  // If user is a regular seller (non-admin), show strictly their own user profile card and stats
+  if (!isAdmin) {
+    const sellerLeads = leads.filter(l => isLeadAssignedToUser(l, currentUser));
+    const totalAssigned = sellerLeads.length;
+    const cerrados = sellerLeads.filter(l => l.estado === 'cerrado').length;
+    const enGestion = sellerLeads.filter(l => ['contactado', 'gestion_ventas', 'sin_respuesta'].includes(l.estado)).length;
+    const conversion = totalAssigned > 0 ? ((cerrados / totalAssigned) * 100).toFixed(1) : '0.0';
+
+    return (
+      <div className="space-y-6 pb-16 md:pb-6">
+        {/* Title Card */}
+        <div className="bg-white p-5 rounded-2xl border border-[#E2E8F0] shadow-sm flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-[#40C4C0] text-white rounded-xl shadow-xs">
+              <Users className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-[#2D3748] tracking-tight">
+                Usuarios
+              </h1>
+              <p className="text-xs text-[#718096] font-medium">
+                Información de tu cuenta, identidad comercial asignada y estado de permisos en Arévalo CRM.
+              </p>
+            </div>
+          </div>
+
+          <div className="px-3.5 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>Cuenta Habilitada</span>
+          </div>
+        </div>
+
+        {/* User Card */}
+        <div className="bg-white rounded-3xl border border-[#E2E8F0] shadow-sm overflow-hidden p-6 sm:p-8 space-y-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 pb-6 border-b border-[#E2E8F0]">
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#40C4C0] to-[#2BB6B1] text-white font-black text-2xl flex items-center justify-center shadow-sm shrink-0">
+                {currentUser.name.charAt(0).toUpperCase()}
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl font-bold text-[#2D3748]">{currentUser.name}</h2>
+                  <span className="px-2.5 py-0.5 bg-[#F0FDFD] text-[#40C4C0] border border-[#40C4C0]/30 rounded-full text-xs font-bold">
+                    Vendedor
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 text-xs text-[#718096]">
+                  <span className="flex items-center gap-1">
+                    <Mail className="w-3.5 h-3.5 text-[#40C4C0]" />
+                    <span className="font-mono text-slate-700">{currentUser.email}</span>
+                  </span>
+                  {currentUser.phone && (
+                    <span className="flex items-center gap-1">
+                      <Phone className="w-3.5 h-3.5 text-[#40C4C0]" />
+                      <span>{currentUser.phone}</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-2xl text-xs font-bold">
+              <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>Identidad Vinculada: <strong>{currentUser.assignedSellerName || currentUser.name}</strong></span>
+            </div>
+          </div>
+
+          {/* Key Metrics / Scope Summary */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="p-4 rounded-2xl bg-[#F8FAFC] border border-slate-200/80 space-y-1">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Leads Asignados</span>
+              <p className="text-2xl font-black text-slate-800">{totalAssigned}</p>
+              <p className="text-[10px] text-slate-500 font-medium">Clientes en tu cartera exclusiva</p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-blue-50/60 border border-blue-200/80 space-y-1">
+              <span className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">En Negociación</span>
+              <p className="text-2xl font-black text-blue-700">{enGestion}</p>
+              <p className="text-[10px] text-blue-600 font-medium">En proceso de contacto</p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200/80 space-y-1">
+              <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">Ventas Concretadas</span>
+              <p className="text-2xl font-black text-emerald-700">{cerrados}</p>
+              <p className="text-[10px] text-emerald-600 font-bold">{conversion}% tasa de cierre</p>
+            </div>
+          </div>
+
+          {/* Role Policy notice */}
+          <div className="p-4 bg-[#F0FDFD] border border-[#40C4C0]/30 rounded-2xl text-xs text-[#00807D] flex items-start gap-3">
+            <Shield className="w-5 h-5 text-[#40C4C0] shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-bold text-[#2D3748]">Permisos y Seguridad de Rol</p>
+              <p className="text-[11px] text-[#4A5568] leading-relaxed">
+                Tu usuario cuenta con acceso de <strong>Vendedor</strong>. Tienes visibilidad exclusiva sobre tu grilla de leads asignados y tus métricas individuales. Para solicitar reasignación de cartera o permisos adicionales, comunícate con el Administrador.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 pb-16 md:pb-6">
       {/* Title & Top Bar */}
@@ -223,7 +329,7 @@ export const AccessManagementModule: React.FC<AccessManagementModuleProps> = ({
           </div>
           <div>
             <h1 className="text-xl font-bold text-[#2D3748] tracking-tight">
-              Gestión de Accesos y Asignación de Vendedores
+              Usuarios
             </h1>
             <p className="text-xs text-[#718096] font-medium">
               Vincule cuentas de Gmail con identidades de vendedor. Solo los vendedores asignados y aprobados pueden ver datos.

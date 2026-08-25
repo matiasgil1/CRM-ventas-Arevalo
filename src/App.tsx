@@ -51,8 +51,25 @@ export default function App() {
     }
   }, [leads]);
 
+  // Guard tabs for non-admin sellers (table, pipeline, dashboard, users permitted)
+  useEffect(() => {
+    if (currentUser && currentUser.role !== 'admin') {
+      const allowedSellerTabs = ['table', 'pipeline', 'dashboard', 'users'];
+      if (!allowedSellerTabs.includes(activeTab)) {
+        setActiveTab('table');
+      }
+    }
+  }, [currentUser, activeTab]);
+
   if (!currentUser) {
-    return <AuthScreen onLoginSuccess={() => setCurrentUser(crmStore.getCurrentUser())} />;
+    return (
+      <AuthScreen 
+        onLoginSuccess={() => {
+          setCurrentUser(crmStore.getCurrentUser());
+          setActiveTab('table');
+        }} 
+      />
+    );
   }
 
   // Check if seller user is pending assignment or approval
@@ -131,7 +148,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'pool' && (
+          {activeTab === 'pool' && currentUser.role === 'admin' && (
             <PoolModule
               leads={leads}
               currentUser={currentUser}
@@ -158,15 +175,16 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'dashboard' && currentUser.role === 'admin' && (
+          {activeTab === 'dashboard' && (
             <DashboardModule
               leads={leads}
               users={users}
               campaigns={campaigns}
+              currentUser={currentUser}
             />
           )}
 
-          {activeTab === 'users' && currentUser.role === 'admin' && (
+          {activeTab === 'users' && (
             <AccessManagementModule
               currentUser={currentUser}
               users={users}

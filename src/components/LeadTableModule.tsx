@@ -390,7 +390,7 @@ export const LeadTableModule: React.FC<LeadTableModuleProps> = ({
             </div>
             <div>
               <h1 className="text-xl font-bold text-[#2D3748] tracking-tight">
-                {isAdmin ? 'Grilla Dinámica de Leads' : 'Mis Clientes Asignados'}
+                {isAdmin ? 'Grilla de Leads' : 'Grilla de Leads (Mis Asignados)'}
               </h1>
               <p className="text-xs text-[#718096] font-medium">
                 {isAdmin 

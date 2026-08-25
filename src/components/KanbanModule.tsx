@@ -145,13 +145,15 @@ export const KanbanModule: React.FC<KanbanModuleProps> = ({
               </div>
             )}
 
-            <button
-              onClick={onOpenPool}
-              className="px-4 py-2 bg-[#F0FDFD] hover:bg-[#e2f9f8] text-[#40C4C0] border border-[#40C4C0]/30 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
-            >
-              <Layers className="w-4 h-4 text-[#40C4C0]" />
-              <span>Tomar del Pool</span>
-            </button>
+            {isAdmin && (
+              <button
+                onClick={onOpenPool}
+                className="px-4 py-2 bg-[#F0FDFD] hover:bg-[#e2f9f8] text-[#40C4C0] border border-[#40C4C0]/30 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+              >
+                <Layers className="w-4 h-4 text-[#40C4C0]" />
+                <span>Tomar del Pool</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -273,7 +275,6 @@ export const KanbanModule: React.FC<KanbanModuleProps> = ({
                       key={lead.id}
                       lead={lead}
                       onClick={() => onSelectLead(lead)}
-                      onQuickMove={handleQuickMove}
                     />
                   ))
                 )}
@@ -309,7 +310,6 @@ export const KanbanModule: React.FC<KanbanModuleProps> = ({
                 key={lead.id}
                 lead={lead}
                 onClick={() => onSelectLead(lead)}
-                onQuickMove={handleQuickMove}
               />
             ))
           )}
@@ -319,82 +319,23 @@ export const KanbanModule: React.FC<KanbanModuleProps> = ({
   );
 };
 
-// Sub-component for individual Kanban Cards
+// Sub-component for individual Kanban Cards (Responsive & Minimalist)
 interface KanbanCardProps {
   lead: Lead;
   onClick: () => void;
-  onQuickMove: (e: React.MouseEvent, lead: Lead, targetStage: LeadStatus) => void;
 }
 
-const KanbanCard: React.FC<KanbanCardProps> = ({ lead, onClick, onQuickMove }) => {
+const KanbanCard: React.FC<KanbanCardProps> = ({ lead, onClick }) => {
   return (
     <div
       onClick={onClick}
-      className="bg-white p-4 rounded-xl border border-[#E2E8F0] shadow-2xs hover:shadow-md hover:border-[#40C4C0]/60 transition-all cursor-pointer group active:scale-98 space-y-3"
+      className="bg-white px-3.5 py-3 rounded-xl border border-[#E2E8F0] shadow-2xs hover:shadow-md hover:border-[#40C4C0] hover:bg-[#F0FDFD]/30 transition-all cursor-pointer group active:scale-98 flex items-center justify-between gap-2"
+      title={`Abrir ficha de ${lead.nombre} ${lead.apellido}`}
     >
-      {/* Name & WhatsApp Badge */}
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <h4 className="text-xs font-bold text-[#2D3748] group-hover:text-[#40C4C0] transition-colors leading-tight">
-            {lead.nombre} {lead.apellido}
-          </h4>
-          <p className="text-[10px] text-[#718096] font-medium mt-0.5">
-            DNI: {lead.dni}
-          </p>
-        </div>
-
-        <div className="p-1.5 rounded-lg bg-[#25D366]/10 text-[#25D366] shrink-0" title="Contactar por WhatsApp">
-          <MessageCircle className="w-3.5 h-3.5 fill-[#25D366]/20" />
-        </div>
-      </div>
-
-      {/* Campaign & Last Paid Tag */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[9px] font-bold bg-[#F3F7F7] text-[#718096] border border-[#E2E8F0] px-2 py-0.5 rounded-md truncate max-w-[140px]">
-          {lead.campanaNombre}
-        </span>
-        <span className="text-[9px] font-bold bg-[#F0FDFD] text-[#00807D] border border-[#40C4C0]/40 px-2 py-0.5 rounded-md whitespace-nowrap shrink-0">
-          Pago: {formatPeriodMMYYYY(lead.ultimoPeriodoPagado)}
-        </span>
-      </div>
-
-      {/* Rejection notice preview if caido */}
-      {lead.estado === 'caido' && lead.observacionRechazo && (
-        <div className="p-2 bg-rose-50 border border-rose-200/80 rounded-lg text-[10px] text-rose-800 italic truncate">
-          "{lead.observacionRechazo}"
-        </div>
-      )}
-
-      {/* Quick Move Trigger Bar */}
-      <div className="pt-2 border-t border-[#E2E8F0] flex items-center justify-between text-[10px] font-bold text-[#718096]">
-        <span className="text-[#718096] truncate">
-          {lead.vendedorNombre ? `👤 ${lead.vendedorNombre.split(' ')[0]}` : 'Sin asignar'}
-        </span>
-
-        <div className="flex items-center gap-1">
-          {lead.estado !== 'cerrado' && (
-            <button
-              type="button"
-              onClick={(e) => onQuickMove(e, lead, 'cerrado')}
-              className="px-2 py-0.5 bg-[#F0FDFD] hover:bg-[#e2f9f8] text-[#40C4C0] border border-[#40C4C0]/30 rounded-md font-bold"
-              title="Marcar como Venta / Cerrado"
-            >
-              ✓ Cerrar
-            </button>
-          )}
-
-          {lead.estado !== 'caido' && (
-            <button
-              type="button"
-              onClick={(e) => onQuickMove(e, lead, 'caido')}
-              className="px-2 py-0.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-md font-bold"
-              title="Marcar como Caído (Exige observación)"
-            >
-              ✕ Caído
-            </button>
-          )}
-        </div>
-      </div>
+      <h4 className="text-xs font-bold text-[#2D3748] group-hover:text-[#00807D] transition-colors leading-snug truncate">
+        {lead.nombre} {lead.apellido}
+      </h4>
+      <ChevronRight className="w-3.5 h-3.5 text-[#A0AEC0] group-hover:text-[#40C4C0] group-hover:translate-x-0.5 transition-all shrink-0" />
     </div>
   );
 };

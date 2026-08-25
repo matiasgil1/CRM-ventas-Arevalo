@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Lead, Campaign, User, LEAD_STATUS_CONFIG, MOTIVOS_CAIDA_PRESET } from '../types/crm';
+import { isLeadAssignedToUser } from '../utils/sellerUtils';
 import { CustomSelect } from './CustomSelect';
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, 
@@ -8,24 +9,33 @@ import {
 import * as XLSX from 'xlsx';
 import { 
   BarChart3, TrendingUp, Users, CheckCircle2, XCircle, 
-  Download, Filter, Award, Target, FileSpreadsheet, Percent 
+  Download, Filter, Award, Target, FileSpreadsheet, Percent, User as UserIcon, Sparkles, MessageCircle
 } from 'lucide-react';
 
 interface DashboardModuleProps {
   leads: Lead[];
   users: User[];
   campaigns: Campaign[];
+  currentUser: User;
 }
 
 export const DashboardModule: React.FC<DashboardModuleProps> = ({
   leads,
   users,
-  campaigns
+  campaigns,
+  currentUser
 }) => {
   const [selectedCampaign, setSelectedCampaign] = useState<string>('all');
+  const isAdmin = currentUser.role === 'admin';
+
+  // Strict seller scoping: if seller, only calculate on their assigned leads
+  const scopedLeads = useMemo(() => {
+    if (isAdmin) return leads;
+    return leads.filter(l => isLeadAssignedToUser(l, currentUser));
+  }, [leads, isAdmin, currentUser]);
 
   // Filter leads by campaign
-  const filteredLeads = leads.filter(l => 
+  const filteredLeads = scopedLeads.filter(l => 
     selectedCampaign === 'all' ? true : l.campanaId === selectedCampaign
   );
 
@@ -48,7 +58,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
     };
   });
 
-  // Seller Efficiency Metrics
+  // Seller Efficiency Metrics (Admin Only)
   const sellers = users.filter(u => u.role === 'vendedor' || u.role === 'admin');
   const sellerStats = sellers.map(seller => {
     const sellerLeads = filteredLeads.filter(l => l.vendedorId === seller.id);
@@ -104,11 +114,12 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
 
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Reporte_CRM_Arevalo');
-    XLSX.writeFile(workbook, `Reporte_CRM_Arevalo_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    const sheetName = isAdmin ? 'Reporte_General_CRM' : 'Mis_Leads_Reporte';
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+    XLSX.writeFile(workbook, `${sheetName}_Arevalo_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
-  // Export Seller Audit Log
+  // Export Seller Audit Log (Admin Only)
   const handleExportSellerAudit = () => {
     const auditRows = sellerStats.map(s => ({
       Vendedor: s.nombre,
@@ -135,10 +146,13 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
           </div>
           <div>
             <h1 className="text-xl font-bold text-[#2D3748] tracking-tight">
-              Dashboard de Métricas y KPIs
+              {isAdmin ? 'Estadísticas Globales' : 'Estadísticas'}
             </h1>
             <p className="text-xs text-[#718096] font-medium">
-              Análisis de conversión, efectividad por vendedor y causas de rechazo.
+              {isAdmin 
+                ? 'Análisis integral de conversión comercial, efectividad por vendedor y causas de rechazo.'
+                : `Estadísticas de efectividad exclusivas para ${currentUser.name} (${currentUser.assignedSellerName || 'Vendedor Asignado'}).`
+              }
             </p>
           </div>
         </div>
@@ -160,10 +174,10 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
 
           <button
             onClick={handleExportLeads}
-            className="px-3.5 py-2 bg-[#40C4C0] hover:bg-[#32b2ae] text-white font-bold rounded-xl text-xs shadow-xs transition-all flex items-center gap-1.5"
+            className="px-3.5 py-2 bg-[#40C4C0] hover:bg-[#32b2ae] text-white font-bold rounded-xl text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-98"
           >
             <Download className="w-4 h-4" />
-            <span>Exportar Excel</span>
+            <span>{isAdmin ? 'Exportar Base' : 'Exportar Mis Leads'}</span>
           </button>
         </div>
       </div>
@@ -273,59 +287,106 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
 
       </div>
 
-      {/* Seller Efficiency Table Module */}
-      <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Award className="w-5 h-5 text-amber-500" />
-            <h3 className="text-sm font-extrabold text-slate-900">
-              Eficiencia Detallada por Vendedor
-            </h3>
+      {/* Conditional Bottom Section: Admin gets full Seller Efficiency Table, Seller gets Personal Performance Summary */}
+      {isAdmin ? (
+        <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Award className="w-5 h-5 text-amber-500" />
+              <h3 className="text-sm font-extrabold text-slate-900">
+                Eficiencia Detallada por Vendedor
+              </h3>
+            </div>
+
+            <button
+              onClick={handleExportSellerAudit}
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-slate-600" />
+              <span>Exportar Auditoría de Vendedores</span>
+            </button>
           </div>
 
-          <button
-            onClick={handleExportSellerAudit}
-            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 self-start sm:self-auto"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-slate-600" />
-            <span>Exportar Auditoría de Vendedores</span>
-          </button>
-        </div>
-
-        <div className="overflow-x-auto border border-slate-200 rounded-2xl">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-100 text-slate-700 font-bold">
-              <tr>
-                <th className="p-3 border-b border-slate-200">Vendedor</th>
-                <th className="p-3 border-b border-slate-200 text-center">Leads Asignados</th>
-                <th className="p-3 border-b border-slate-200 text-center">En Gestión</th>
-                <th className="p-3 border-b border-slate-200 text-center">Ventas (Cerrados)</th>
-                <th className="p-3 border-b border-slate-200 text-center">Caídos</th>
-                <th className="p-3 border-b border-slate-200 text-right">Tasa de Conversión</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 font-medium">
-              {sellerStats.map((seller, idx) => (
-                <tr key={seller.id} className="hover:bg-slate-50">
-                  <td className="p-3 font-extrabold text-slate-900 flex items-center gap-2">
-                    {idx === 0 && <span className="text-amber-500">🏆</span>}
-                    <span>{seller.nombre}</span>
-                  </td>
-                  <td className="p-3 text-center font-bold text-slate-700">{seller.total}</td>
-                  <td className="p-3 text-center font-bold text-blue-600">{seller.enGestion}</td>
-                  <td className="p-3 text-center font-extrabold text-emerald-600">{seller.cerrados}</td>
-                  <td className="p-3 text-center font-bold text-rose-600">{seller.caidos}</td>
-                  <td className="p-3 text-right font-black text-slate-900">
-                    <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-full">
-                      {seller.rate}%
-                    </span>
-                  </td>
+          <div className="overflow-x-auto border border-slate-200 rounded-2xl">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-100 text-slate-700 font-bold">
+                <tr>
+                  <th className="p-3 border-b border-slate-200">Vendedor</th>
+                  <th className="p-3 border-b border-slate-200 text-center">Leads Asignados</th>
+                  <th className="p-3 border-b border-slate-200 text-center">En Gestión</th>
+                  <th className="p-3 border-b border-slate-200 text-center">Ventas (Cerrados)</th>
+                  <th className="p-3 border-b border-slate-200 text-center">Caídos</th>
+                  <th className="p-3 border-b border-slate-200 text-right">Tasa de Conversión</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium">
+                {sellerStats.map((seller, idx) => (
+                  <tr key={seller.id} className="hover:bg-slate-50">
+                    <td className="p-3 font-extrabold text-slate-900 flex items-center gap-2">
+                      {idx === 0 && <span className="text-amber-500">🏆</span>}
+                      <span>{seller.nombre}</span>
+                    </td>
+                    <td className="p-3 text-center font-bold text-slate-700">{seller.total}</td>
+                    <td className="p-3 text-center font-bold text-blue-600">{seller.enGestion}</td>
+                    <td className="p-3 text-center font-extrabold text-emerald-600">{seller.cerrados}</td>
+                    <td className="p-3 text-center font-bold text-rose-600">{seller.caidos}</td>
+                    <td className="p-3 text-right font-black text-slate-900">
+                      <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-full">
+                        {seller.rate}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="bg-white p-5 rounded-3xl border border-[#E2E8F0] shadow-xs space-y-4">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-[#F0FDFD] text-[#40C4C0] rounded-xl border border-[#40C4C0]/30">
+              <Award className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-extrabold text-[#2D3748]">
+                Resumen de Rendimiento de Mi Cartera
+              </h3>
+              <p className="text-xs text-[#718096]">
+                Estadísticas de contacto y avance comercial de tus {totalLeads} clientes asignados.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+            <div className="p-4 bg-[#F8FAFC] rounded-2xl border border-slate-200/80 space-y-1">
+              <div className="flex items-center justify-between text-slate-600">
+                <span className="text-[11px] font-bold">Total Asignados</span>
+                <Users className="w-4 h-4 text-slate-500" />
+              </div>
+              <p className="text-xl font-black text-slate-800">{totalLeads}</p>
+              <p className="text-[10px] text-slate-500 font-medium">Clientes en tu cartera</p>
+            </div>
+
+            <div className="p-4 bg-emerald-50/60 rounded-2xl border border-emerald-200/80 space-y-1">
+              <div className="flex items-center justify-between text-emerald-700">
+                <span className="text-[11px] font-bold">Ventas Logradas</span>
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              </div>
+              <p className="text-xl font-black text-emerald-700">{cerradosCount}</p>
+              <p className="text-[10px] text-emerald-600 font-bold">{conversionRate}% efectividad</p>
+            </div>
+
+            <div className="p-4 bg-blue-50/60 rounded-2xl border border-blue-200/80 space-y-1">
+              <div className="flex items-center justify-between text-blue-700">
+                <span className="text-[11px] font-bold">En Negociación Activa</span>
+                <TrendingUp className="w-4 h-4 text-blue-600" />
+              </div>
+              <p className="text-xl font-black text-blue-700">{enGestionCount}</p>
+              <p className="text-[10px] text-blue-600 font-medium">Contactados / en seguimiento</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

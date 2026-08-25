@@ -26,16 +26,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isAdmin = user.role === 'admin';
   const isSuperAdmin = user.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
 
-  const navItems = [
+  const navItems = isAdmin ? [
     {
       id: 'table',
-      label: isAdmin ? 'Grilla de Leads (Tabla)' : 'Mis Leads (Tabla)',
+      label: 'Grilla de Leads',
       icon: Table,
       badge: null
     },
     {
       id: 'pipeline',
-      label: isAdmin ? 'Pipeline (Kanban)' : 'Mi Pipeline (Kanban)',
+      label: 'Pipeline (Kanban)',
       icon: LayoutGrid,
       badge: null
     },
@@ -45,38 +45,61 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Layers,
       badge: unassignedCount > 0 ? unassignedCount : null
     },
-    ...(isAdmin ? [
-      {
-        id: 'campaigns',
-        label: 'Gestión de Campañas',
-        icon: Megaphone,
-        badge: null
-      },
-      {
-        id: 'import',
-        label: 'Importar Base',
-        icon: FileUp,
-        badge: null
-      },
-      {
-        id: 'dashboard',
-        label: 'KPIs & Reportes',
-        icon: BarChart3,
-        badge: null
-      },
-      {
-        id: 'users',
-        label: 'Acceso Usuarios',
-        icon: Users,
-        badge: null
-      },
-      {
-        id: 'auditoria',
-        label: 'Auditoría',
-        icon: Shield,
-        badge: null
-      }
-    ] : [])
+    {
+      id: 'campaigns',
+      label: 'Gestión de Campañas',
+      icon: Megaphone,
+      badge: null
+    },
+    {
+      id: 'import',
+      label: 'Importar Base',
+      icon: FileUp,
+      badge: null
+    },
+    {
+      id: 'dashboard',
+      label: 'Estadísticas',
+      icon: BarChart3,
+      badge: null
+    },
+    {
+      id: 'users',
+      label: 'Usuarios',
+      icon: Users,
+      badge: null
+    },
+    {
+      id: 'auditoria',
+      label: 'Auditoría',
+      icon: Shield,
+      badge: null
+    }
+  ] : [
+    {
+      id: 'table',
+      label: 'Grilla de Leads',
+      icon: Table,
+      badge: null
+    },
+    {
+      id: 'pipeline',
+      label: 'Pipeline (Kanban)',
+      icon: LayoutGrid,
+      badge: null
+    },
+    {
+      id: 'dashboard',
+      label: 'Estadísticas',
+      icon: BarChart3,
+      badge: null
+    },
+    {
+      id: 'users',
+      label: 'Usuarios',
+      icon: Users,
+      badge: null
+    }
   ];
 
   return (
