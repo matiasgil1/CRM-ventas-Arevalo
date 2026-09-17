@@ -478,38 +478,12 @@ class CrmStore {
           });
         }
 
-        // Merge local leads ONLY if they represent genuinely new distinct persons
-        let mergedNewLocal = 0;
-        this.leads.forEach((localLead) => {
-          let matchesRemote = false;
-          for (const [, remoteLead] of uniqueRemoteMap.entries()) {
-            if (areLeadsDuplicate(remoteLead, localLead)) {
-              matchesRemote = true;
-              break;
-            }
-          }
-
-          if (!matchesRemote) {
-            setDoc(doc(db, 'leads', localLead.id), sanitizeForFirestore(localLead), { merge: true }).catch(console.error);
-            this.notifyWebhook(localLead);
-            uniqueRemoteMap.set(localLead.id, localLead);
-            mergedNewLocal++;
-          }
-        });
-
         const mergedLeads = Array.from(uniqueRemoteMap.values());
         mergedLeads.sort((a, b) => new Date(b.creadoEn || 0).getTime() - new Date(a.creadoEn || 0).getTime());
+
         this.leads = mergedLeads;
         this.isFirebaseConnected = true;
         this.lastFirestoreSync = new Date().toISOString();
-
-        if (mergedNewLocal > 0) {
-          this.addSyncLog({
-            type: 'firestore',
-            status: 'info',
-            message: `Sincronizados ${mergedNewLocal} leads creados localmente con Firestore y Webhook`
-          });
-        }
 
         this.saveToStorage();
       }, (err) => {
