@@ -327,8 +327,8 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
           ) : null}
 
           {/* Quick Lead Info Badges */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-            <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl col-span-2 sm:col-span-1">
               <p className="text-[10px] font-bold text-slate-400 uppercase">Campaña</p>
               <p className="text-xs font-bold text-slate-800 truncate mt-0.5">
                 {lead.campanaNombre}
@@ -342,12 +342,57 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
               </p>
             </div>
 
-            <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl col-span-2 sm:col-span-1">
+            <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl col-span-2 sm:col-span-2">
               <p className="text-[10px] font-bold text-slate-400 uppercase">Vendedor Asignado</p>
-              <p className="text-xs font-bold text-slate-800 mt-0.5">
+              <p className="text-xs font-bold text-slate-800 mt-0.5 truncate">
                 {lead.vendedorNombre || 'Pool General (Sin asignar)'}
               </p>
             </div>
+
+            {lead.direccion && (
+              <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl col-span-2">
+                <p className="text-[10px] font-bold text-slate-400 uppercase">Dirección</p>
+                <p className="text-xs font-bold text-slate-800 mt-0.5 break-words">
+                  {lead.direccion}
+                </p>
+              </div>
+            )}
+            
+            {lead.fechaInicio && (
+              <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl">
+                <p className="text-[10px] font-bold text-slate-400 uppercase">Fecha Inicio</p>
+                <p className="text-xs font-bold text-slate-800 mt-0.5">
+                  {lead.fechaInicio}
+                </p>
+              </div>
+            )}
+            
+            {lead.estadoDeuda && (
+              <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl">
+                <p className="text-[10px] font-bold text-slate-400 uppercase">Estado Deuda</p>
+                <p className="text-xs font-bold text-slate-800 mt-0.5">
+                  {lead.estadoDeuda}
+                </p>
+              </div>
+            )}
+            
+            {lead.cobrador && (
+              <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl col-span-2 sm:col-span-2">
+                <p className="text-[10px] font-bold text-slate-400 uppercase">Cobrador</p>
+                <p className="text-xs font-bold text-slate-800 mt-0.5 truncate">
+                  {lead.cobrador}
+                </p>
+              </div>
+            )}
+            
+            {lead.sucursal && (
+              <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl col-span-2 sm:col-span-2">
+                <p className="text-[10px] font-bold text-slate-400 uppercase">Sucursal</p>
+                <p className="text-xs font-bold text-slate-800 mt-0.5 truncate">
+                  {lead.sucursal}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Rejection observation warning if caido */}

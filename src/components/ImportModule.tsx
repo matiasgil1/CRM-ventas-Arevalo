@@ -27,6 +27,11 @@ interface ParsedRow {
   telefono: string;
   ultimoPeriodoPagado: string;
   vendedor: string;
+  direccion?: string;
+  fechaInicio?: string;
+  estadoDeuda?: string;
+  cobrador?: string;
+  sucursal?: string;
 }
 
 export const ImportModule: React.FC<ImportModuleProps> = ({
@@ -52,28 +57,28 @@ export const ImportModule: React.FC<ImportModuleProps> = ({
   const handleDownloadSample = () => {
     const sampleData = [
       {
-        Nombre: 'Juan Carlos',
-        Apellido: 'Gomez',
-        DNI: '30123456',
-        Telefono: '3515123456',
-        UltimoPeriodoPagado: '03/2026',
-        Vendedor: 'CARLOS CACERES'
+        Cliente: 'LESCANO FRANCISCO OMAR',
+        'Nro. Documento': '20261946',
+        'Telefono Movil': '471378',
+        'Fecha Inicio': '1/6/2006',
+        Direccion: 'B. MARTIN FIERRO - MZ.D- L. 18',
+        'Estado Deuda': 'MORA 1',
+        'Ultimo Pago': '1/7/2026',
+        'Promotor/Vendedor': '122-PEREYRA VICTOR MARTIN',
+        Cobrador: '88 - REINOSO GUSTAVO ADRIAN',
+        Sucursal: 'SUCURSAL ALBERDI SS'
       },
       {
-        Nombre: 'Maria Laura',
-        Apellido: 'Perez',
-        DNI: '32987654',
-        Telefono: '3515987654',
-        UltimoPeriodoPagado: '01/2026',
-        Vendedor: 'MIGUEL HERNANDEZ'
-      },
-      {
-        Nombre: 'Esteban',
-        Apellido: 'Rodriguez',
-        DNI: '27456789',
-        Telefono: '3514445566',
-        UltimoPeriodoPagado: '11/2025',
-        Vendedor: 'LUCAS ALDERETE'
+        Cliente: 'PIÑERO HECTOR HUGO',
+        'Nro. Documento': '16526583',
+        'Telefono Movil': '3815009872',
+        'Fecha Inicio': '1/6/2006',
+        Direccion: 'LUCAS CORDOBA 156',
+        'Estado Deuda': 'MORA 1',
+        'Ultimo Pago': '1/7/2026',
+        'Promotor/Vendedor': '122-PEREYRA VICTOR MARTIN',
+        Cobrador: '88 - REINOSO GUSTAVO ADRIAN',
+        Sucursal: 'SUCURSAL ALBERDI SS'
       }
     ];
 
@@ -112,6 +117,11 @@ export const ImportModule: React.FC<ImportModuleProps> = ({
     let telefonoCol = -1;
     let periodoCol = -1;
     let vendedorCol = -1;
+    let direccionCol = -1;
+    let fechaInicioCol = -1;
+    let estadoDeudaCol = -1;
+    let cobradorCol = -1;
+    let sucursalCol = -1;
 
     const headerKeywordsMap = {
       fullName: ['nombreyapellido', 'nombreapellido', 'nombrecompleto', 'nombrey-apellido', 'nombresyapellidos', 'socio', 'cliente', 'titular', 'abonado', 'persona', 'afiliado', 'razonsocial'],
@@ -120,7 +130,12 @@ export const ImportModule: React.FC<ImportModuleProps> = ({
       dni: ['dni', 'documento', 'doc', 'cedula', 'cuit', 'cuil', 'nrodoc', 'numdoc', 'identificacion', 'nrodocumento'],
       telefono: ['telefono', 'celular', 'tel', 'phone', 'movil', 'whatsapp', 'wa', 'cel', 'contacto', 'nrotelefono', 'numtelefono'],
       periodo: ['ultimoperiodopagado', 'periodopagado', 'ultimopago', 'periodo', 'pago', 'pagado', 'cuota', 'fechapago', 'mes', 'fecpago', 'ultpago'],
-      vendedor: ['vendedor', 'vendedores', 'ejecutivo', 'asesor', 'agente', 'operador', 'user', 'usuario', 'asignado', 'vendedornombre', 'promotor', 'comercial']
+      vendedor: ['vendedor', 'vendedores', 'ejecutivo', 'asesor', 'agente', 'operador', 'user', 'usuario', 'asignado', 'vendedornombre', 'promotor', 'comercial'],
+      direccion: ['direccion', 'domicilio', 'calle', 'address'],
+      fechaInicio: ['fechainicio', 'fecinicio', 'alta', 'fechaalta', 'inicio'],
+      estadoDeuda: ['estadodeuda', 'estado', 'deuda', 'situacion'],
+      cobrador: ['cobrador', 'recaudador', 'cobranza'],
+      sucursal: ['sucursal', 'agencia', 'filial', 'oficina']
     };
 
     // Scan first 10 rows to detect the Header Row
@@ -138,6 +153,7 @@ export const ImportModule: React.FC<ImportModuleProps> = ({
             headerKeywordsMap.telefono.some(k => cleanCell === k || cleanCell.includes(k)) ||
             headerKeywordsMap.periodo.some(k => cleanCell === k || cleanCell.includes(k)) ||
             headerKeywordsMap.vendedor.some(k => cleanCell === k || cleanCell.includes(k)) ||
+            headerKeywordsMap.direccion.some(k => cleanCell === k || cleanCell.includes(k)) ||
             headerKeywordsMap.dni.some(k => cleanCell === k)) {
           score++;
         }
@@ -155,6 +171,28 @@ export const ImportModule: React.FC<ImportModuleProps> = ({
       headerRow.forEach((cell: any, colIdx: number) => {
         const cleanHeader = String(cell || '').toLowerCase().replace(/[^a-z0-9]/g, '');
         if (!cleanHeader) return;
+
+        // Extra fields check
+        if (direccionCol === -1 && headerKeywordsMap.direccion.some(k => cleanHeader === k || cleanHeader.includes(k))) {
+          direccionCol = colIdx;
+          return;
+        }
+        if (fechaInicioCol === -1 && headerKeywordsMap.fechaInicio.some(k => cleanHeader === k || cleanHeader.includes(k))) {
+          fechaInicioCol = colIdx;
+          return;
+        }
+        if (estadoDeudaCol === -1 && headerKeywordsMap.estadoDeuda.some(k => cleanHeader === k || cleanHeader.includes(k))) {
+          estadoDeudaCol = colIdx;
+          return;
+        }
+        if (cobradorCol === -1 && headerKeywordsMap.cobrador.some(k => cleanHeader === k || cleanHeader.includes(k))) {
+          cobradorCol = colIdx;
+          return;
+        }
+        if (sucursalCol === -1 && headerKeywordsMap.sucursal.some(k => cleanHeader === k || cleanHeader.includes(k))) {
+          sucursalCol = colIdx;
+          return;
+        }
 
         // Vendedor check (check first to avoid overlap)
         if (vendedorCol === -1 && headerKeywordsMap.vendedor.some(k => cleanHeader === k || cleanHeader.includes(k))) {
@@ -289,6 +327,12 @@ export const ImportModule: React.FC<ImportModuleProps> = ({
       const rawPhone = telefonoCol >= 0 ? String(row[telefonoCol] !== undefined && row[telefonoCol] !== null ? row[telefonoCol] : '').trim() : '';
       const rawPeriod = periodoCol >= 0 ? row[periodoCol] : '';
       const rawVendedor = vendedorCol >= 0 ? String(row[vendedorCol] !== undefined && row[vendedorCol] !== null ? row[vendedorCol] : '').trim() : '';
+      
+      const rawDireccion = direccionCol >= 0 ? String(row[direccionCol] || '').trim() : '';
+      const rawFechaInicio = fechaInicioCol >= 0 ? String(row[fechaInicioCol] || '').trim() : '';
+      const rawEstadoDeuda = estadoDeudaCol >= 0 ? String(row[estadoDeudaCol] || '').trim() : '';
+      const rawCobrador = cobradorCol >= 0 ? String(row[cobradorCol] || '').trim() : '';
+      const rawSucursal = sucursalCol >= 0 ? String(row[sucursalCol] || '').trim() : '';
 
       // Skip row if name, phone, and period are all empty or non-data header text
       if (!nombreVal && !rawPhone && !rawDni) continue;
@@ -299,7 +343,12 @@ export const ImportModule: React.FC<ImportModuleProps> = ({
         dni: cleanDni(rawDni),
         telefono: rawPhone.replace(/\D/g, ''),
         ultimoPeriodoPagado: formatPeriodMMYYYY(rawPeriod),
-        vendedor: rawVendedor
+        vendedor: rawVendedor,
+        direccion: rawDireccion,
+        fechaInicio: rawFechaInicio,
+        estadoDeuda: rawEstadoDeuda,
+        cobrador: rawCobrador,
+        sucursal: rawSucursal
       });
     }
 

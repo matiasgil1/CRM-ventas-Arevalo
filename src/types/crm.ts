@@ -67,6 +67,14 @@ export interface Lead {
   vendedorId: string | null; // null = Pool General (Sin Asignar)
   vendedorNombre: string | null;
   estado: LeadStatus;
+  
+  // Extra fields from imports
+  direccion?: string;
+  fechaInicio?: string;
+  estadoDeuda?: string;
+  cobrador?: string;
+  sucursal?: string;
+  
   observacionRechazo?: string; // Obligatorio si estado === 'caido'
   motivoCaida?: string; // Categoría de caída
   notas?: string;

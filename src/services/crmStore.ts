@@ -64,7 +64,7 @@ const SUPER_ADMIN_USER: User = {
   phone: '3515550011'
 };
 
-export const DEFAULT_SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxIPR58ZibTAfEP4zPyDfvwysyUV3aXWcO_vdvSTplU8YA4R8P_Xhkmjp53dVvQiQVKAA/exec';
+export const DEFAULT_SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxaRMuUSwtTtiw_XCBYav8g01nyuR41MqO7eIF3B0WmrerJXilMiQ_VUZ0AtqPUjTkzeQ/exec';
 
 class CrmStore {
   private users: User[] = [];
@@ -1003,6 +1003,9 @@ class CrmStore {
     this.saveToStorage();
 
     await deleteDoc(doc(db, 'leads', removed.id));
+    
+    // Notify Google Sheets webhook of the deletion
+    this.notifyWebhook(removed, 'delete');
 
     this.addAuditLog({
       category: 'leads',
@@ -1016,6 +1019,10 @@ class CrmStore {
 
   public async deleteLeadsBulk(leadIds: string[]): Promise<boolean> {
     if (leadIds.length === 0) return true;
+    
+    // Find leads before filtering them out
+    const removedLeads = this.leads.filter(l => leadIds.includes(l.id));
+    
     this.leads = this.leads.filter(l => !leadIds.includes(l.id));
     this.saveToStorage();
 
@@ -1033,6 +1040,11 @@ class CrmStore {
     } catch (err) {
       console.error('Error deleting leads batch from Firestore:', err);
     }
+    
+    // Notify webhook for each deleted lead
+    removedLeads.forEach(lead => {
+      this.notifyWebhook(lead, 'delete');
+    });
 
     this.addAuditLog({
       category: 'leads',
@@ -1359,7 +1371,19 @@ class CrmStore {
   }
 
   public async importLeads(
-    leadsData: Array<{ nombre: string; apellido: string; dni: string; telefono: string; ultimoPeriodoPagado: string; vendedor?: string }>,
+    leadsData: Array<{ 
+      nombre: string; 
+      apellido: string; 
+      dni: string; 
+      telefono: string; 
+      ultimoPeriodoPagado: string; 
+      vendedor?: string;
+      direccion?: string;
+      fechaInicio?: string;
+      estadoDeuda?: string;
+      cobrador?: string;
+      sucursal?: string;
+    }>,
     campanaId: string
   ): Promise<{ count: number; newCount: number; updatedCount: number; campaignName: string }> {
     const campaign = this.campaigns.find(c => c.id === campanaId);
@@ -1383,7 +1407,12 @@ class CrmStore {
         apellido: (row.apellido || '').trim(),
         dni: (row.dni || 'S/D').trim(),
         telefono: (row.telefono || '').replace(/\D/g, ''),
-        ultimoPeriodoPagado: formatPeriodMMYYYY(row.ultimoPeriodoPagado)
+        ultimoPeriodoPagado: formatPeriodMMYYYY(row.ultimoPeriodoPagado),
+        direccion: row.direccion,
+        fechaInicio: row.fechaInicio,
+        estadoDeuda: row.estadoDeuda,
+        cobrador: row.cobrador,
+        sucursal: row.sucursal
       };
 
       // Check if candidate already exists in this.leads or in leadsToSaveFirestore
@@ -1411,6 +1440,13 @@ class CrmStore {
           existing.vendedorNombre = matchedSeller.name;
           existing.fechaAsignacion = now;
         }
+        
+        // Update Extra Fields
+        if (candidateLeadData.direccion) existing.direccion = candidateLeadData.direccion;
+        if (candidateLeadData.fechaInicio) existing.fechaInicio = candidateLeadData.fechaInicio;
+        if (candidateLeadData.estadoDeuda) existing.estadoDeuda = candidateLeadData.estadoDeuda;
+        if (candidateLeadData.cobrador) existing.cobrador = candidateLeadData.cobrador;
+        if (candidateLeadData.sucursal) existing.sucursal = candidateLeadData.sucursal;
 
         existing.historial = existing.historial || [];
         existing.historial.push({
@@ -1442,6 +1478,11 @@ class CrmStore {
           dni: candidateLeadData.dni,
           telefono: candidateLeadData.telefono,
           ultimoPeriodoPagado: candidateLeadData.ultimoPeriodoPagado,
+          direccion: candidateLeadData.direccion,
+          fechaInicio: candidateLeadData.fechaInicio,
+          estadoDeuda: candidateLeadData.estadoDeuda,
+          cobrador: candidateLeadData.cobrador,
+          sucursal: candidateLeadData.sucursal,
           campanaId,
           campanaNombre: campaignName,
           vendedorId,
@@ -1477,6 +1518,9 @@ class CrmStore {
         chunk.forEach(leadItem => {
           const ref = doc(db, 'leads', leadItem.id);
           batch.set(ref, sanitizeForFirestore(leadItem), { merge: true });
+          
+          // Send to Google Sheets Webhook
+          this.notifyWebhook(leadItem, 'upsert');
         });
         await batch.commit();
       }
